@@ -1,44 +1,38 @@
 """
-Deep e-prop for a 2-layer vanilla tanh RNN (Millidge 2025, Eq. 10).
+Deep e-prop for an L-layer vanilla tanh RNN (Millidge 2025, Eq. 10).
 
-Compared to deep-RTRL, deep e-prop makes ONE approximation:
-  Replace the full recurrent Jacobian J^{rec,l}_t with its diagonal
+Generalisation of the 2-layer implementation to arbitrary depth L >= 1.
+
+Key approximation (same as single-layer e-prop):
+  Replace the full recurrent Jacobian J^{rec,l}_t with its DIAGONAL
   when propagating eligibility traces THROUGH TIME.
   Cross-layer (spatial) credit propagation keeps the FULL feedforward Jacobian.
 
-Single-layer e-prop recap (diagonal J^{rec}):
-  ε^1_{rec,t}[b,i,j] = psi^1[b,i]*h^1_{t-1}[b,j]
-                       + psi^1[b,i]*W_rec^1[i,i] * ε^1_{rec,t-1}[b,i,j]
-  (i.e. carry factor = psi^1[b,i]*W_rec^1[i,i], a scalar per neuron)
+Trace structure for L layers
+------------------------------
+Self-traces for layer l:
+  eps_self_rec[l]  (B, n, n)        how h^l depends on W_rec^l
+  eps_self_ff[l]   (B, n, n)        how h^l depends on W_ff^l  [l >= 1]
+  eps_self_in      (B, n, n_in)     how h^0 depends on W_in    [layer 0 only]
+  eps_self_b[l]    (B, n)           how h^l depends on b^l
 
-Deep e-prop for layer-2 own params (same diagonal approximation):
-  ε^2_{rec,t}[b,i,j] = psi^2[b,i]*h^2_{t-1}[b,j]
-                       + psi^2[b,i]*W_rec^2[i,i] * ε^2_{rec,t-1}[b,i,j]
+Cross-layer traces for l_top > l_src (tracks how h^{l_top} depends on params of l_src):
+  eps_cross_rec[l_top][l_src]   (B, n, n, n)
+  eps_cross_ff[l_top][l_src]    (B, n, n, n)   [l_src >= 1]
+  eps_cross_in[l_top]           (B, n, n, n_in) [always W_in at l_src=0]
+  eps_cross_b[l_top][l_src]     (B, n, n)
 
-  ε^2_{ff,t}[b,i,j]  = psi^2[b,i]*h^1_t[b,j]
-                       + psi^2[b,i]*W_rec^2[i,i] * ε^2_{ff,t-1}[b,i,j]
-  (h^1_t is the instantaneous feedforward input to layer 2)
+Update order: bottom to top.
+For l_top = 1..L-1, for l_src = 0..l_top-1:
+  Adjacent  (l_src == l_top-1): spatial uses self-trace of l_src
+  Non-adjacent (l_src <  l_top-1): spatial uses cross-trace from l_top-1 to l_src
 
-Cross-layer trace for layer-1 params:  ε^{2←1}_{rec,t}[b, i2, i1, j]
-  tracks how h^2_t[i2] depends on W_rec^1[i1, j].
+Gradient accumulation uses delta = err_out @ W_out projected to top hidden layer:
+  Top layer (L-1): via self-traces
+  Layer l_src < L-1: via cross-layer traces eps_cross[L-1][l_src]
 
-  Temporal carry (diagonal J^{rec,2}):
-    psi^2[b,i2]*W_rec^2[i2,i2] * ε^{2←1}_{rec,t-1}[b,i2,i1,j]
-
-  Spatial term (full J^{12}, e-prop P^1):
-    J12[b,i2,i1] * ε^1_{rec,t}[b,i1,j]
-    = psi^2[b,i2]*W_ff[i2,i1] * ε^1_{rec,t}[b,i1,j]
-
-  Full RTRL would sum over ALL i1 in the spatial term (O(n^4) memory).
-  E-prop here uses only the DIAGONAL block of P^1: P^1[i1',(i1,j)] ≈ 0 for i1'≠i1.
-
-d=0 variant: zero all temporal carry terms. Cross-layer spatial term remains.
-  ε^{2←1}_{rec,t}[b,i2,i1,j] = J12[b,i2,i1] * ε^1_{rec,t}[b,i1,j]  (spatial only)
-
-Gradient at each masked timestep:
-  delta^2_t = W_out^T @ err_out_t                    (learning signal at layer 2)
-  dL/dW_rec^2 += einsum(delta^2, ε^2_{rec,t})  / B
-  dL/dW_rec^1 += einsum(delta^2, ε^{2←1}_{rec,t}) / B
+Memory: O(L^2 * B * n^3) for cross-rec traces.
+  L=3, n=50, B=32 → ~48 MB;  L=5, n=50, B=32 → ~160 MB.
 """
 
 import torch
@@ -56,154 +50,178 @@ def compute_deep_eprop_gradients(
     d_zero: bool = False,
 ) -> Dict[str, Tensor]:
     """
-    Deep e-prop (or d=0) gradients for a 2-layer DeepRNN.
+    Deep e-prop (or d=0) gradients for an L-layer DeepRNN (L >= 1).
 
-    d_zero=True : drop all temporal carry terms; keep spatial cross-layer term.
+    d_zero=True : drop all temporal carry terms; retain spatial cross-layer terms.
     """
-    assert model.n_layers == 2, "Deep e-prop implemented for 2-layer networks"
-
+    L     = model.n_layers
     T, B, n_in = inputs.shape
-    n1 = n2 = model.n_rec
+    n     = model.n_rec
     n_out = model.n_out
+    dev   = inputs.device
 
-    W_rec1 = model.W_rec(0).detach()   # (n1, n1)
-    W_rec2 = model.W_rec(1).detach()   # (n2, n2)
-    W_in_  = model.W_in.detach()        # (n1, n_in)
-    W_ff_  = model.W_ff(1).detach()     # (n2, n1)
-    W_out_ = model.W_out.detach()       # (n_out, n2)
+    # ── Detach weights ─────────────────────────────────────────────────────────
+    W_recs  = [model.W_rec(l).detach() for l in range(L)]
+    biases  = [model.bias(l).detach()  for l in range(L)]
+    W_in_   = model.W_in.detach()
+    # W_ffs[i] = feedforward weight into layer i+1  (model.W_ffs[i])
+    W_ffs   = [model.W_ff(l).detach() for l in range(1, L)]
+    W_out_  = model.W_out.detach()
+    w_diags = [W_recs[l].diag() for l in range(L)]   # (n,) each
 
-    w_diag1 = W_rec1.diag()   # (n1,)  W_rec^1[i,i]
-    w_diag2 = W_rec2.diag()   # (n2,)  W_rec^2[i,i]
+    # ── Self-traces ────────────────────────────────────────────────────────────
+    eps_self_rec = [torch.zeros(B, n, n,     device=dev) for _ in range(L)]
+    eps_self_ff  = [None] + [torch.zeros(B, n, n, device=dev) for _ in range(1, L)]
+    eps_self_in  = torch.zeros(B, n, n_in,   device=dev)
+    eps_self_b   = [torch.zeros(B, n,        device=dev) for _ in range(L)]
 
-    dev = inputs.device
+    # ── Cross-layer traces (only l_top > l_src) ────────────────────────────────
+    eps_cross_rec = [[None] * L for _ in range(L)]
+    eps_cross_ff  = [[None] * L for _ in range(L)]   # l_src > 0 only
+    eps_cross_in  = [None] * L                        # l_src=0, indexed by l_top
+    eps_cross_b   = [[None] * L for _ in range(L)]
 
-    # ── Layer-1 eligibility traces  ε^1[b,i,j] ──────────────────────────────
-    eps1_rec = torch.zeros(B, n1, n1,  device=dev)
-    eps1_in  = torch.zeros(B, n1, n_in, device=dev)
-    eps1_b   = torch.zeros(B, n1,       device=dev)
+    for l_top in range(1, L):
+        eps_cross_in[l_top] = torch.zeros(B, n, n, n_in, device=dev)
+        for l_src in range(l_top):
+            eps_cross_rec[l_top][l_src] = torch.zeros(B, n, n, n,    device=dev)
+            eps_cross_b[l_top][l_src]   = torch.zeros(B, n, n,       device=dev)
+            if l_src > 0:
+                eps_cross_ff[l_top][l_src] = torch.zeros(B, n, n, n, device=dev)
 
-    # ── Layer-2 own-param eligibility traces  ε^2[b,i,j] ────────────────────
-    eps2_rec = torch.zeros(B, n2, n2, device=dev)
-    eps2_ff  = torch.zeros(B, n2, n1, device=dev)
-    eps2_b   = torch.zeros(B, n2,     device=dev)
-
-    # ── Cross-layer traces  ε^{2←1}[b,i,j]  (layer-1 params seen from layer-2)
-    eps21_rec = torch.zeros(B, n2, n1, n1,  device=dev)
-    eps21_in  = torch.zeros(B, n2, n1, n_in, device=dev)
-    eps21_b   = torch.zeros(B, n2, n1,       device=dev)
-
-    # ── Gradient accumulators ─────────────────────────────────────────────────
-    grad_W_rec1 = torch.zeros_like(W_rec1)
-    grad_W_in   = torch.zeros_like(W_in_)
-    grad_b1     = torch.zeros(n1, device=dev)
-    grad_W_rec2 = torch.zeros_like(W_rec2)
-    grad_W_ff   = torch.zeros_like(W_ff_)
-    grad_b2     = torch.zeros(n2, device=dev)
+    # ── Gradient accumulators ──────────────────────────────────────────────────
+    grad_W_recs = [torch.zeros(n, n,   device=dev) for _ in range(L)]
+    grad_W_ffs  = [torch.zeros(n, n,   device=dev) for _ in range(L - 1)]
+    grad_W_in   = torch.zeros(n, n_in, device=dev)
+    grad_biases = [torch.zeros(n,      device=dev) for _ in range(L)]
     grad_W_out  = torch.zeros_like(W_out_)
-    grad_b_out  = torch.zeros(n_out, device=dev)
+    grad_b_out  = torch.zeros(n_out,   device=dev)
 
-    h1 = torch.zeros(B, n1, device=dev)
-    h2 = torch.zeros(B, n2, device=dev)
+    hs = [torch.zeros(B, n, device=dev) for _ in range(L)]
 
     for t in range(T):
-        x_t    = inputs[t]
-        h1_prev, h2_prev = h1.clone(), h2.clone()
+        x_t     = inputs[t]
+        hs_prev = [h.clone() for h in hs]
 
+        # ── Forward pass ──────────────────────────────────────────────────────
         with torch.no_grad():
-            pre1 = x_t @ W_in_.T + h1_prev @ W_rec1.T + model.bias(0)
-            h1   = torch.tanh(pre1)
-            pre2 = h1 @ W_ff_.T + h2_prev @ W_rec2.T + model.bias(1)
-            h2   = torch.tanh(pre2)
-            o    = h2 @ W_out_.T + model.b_out
+            new_hs = []
+            for l in range(L):
+                inp   = (x_t @ W_in_.T if l == 0 else new_hs[l - 1] @ W_ffs[l - 1].T)
+                h_new = torch.tanh(inp + hs_prev[l] @ W_recs[l].T + biases[l])
+                new_hs.append(h_new)
+            hs = new_hs
+            o  = hs[-1] @ W_out_.T + model.b_out
 
-        psi1 = 1.0 - h1 ** 2   # (B, n1)
-        psi2 = 1.0 - h2 ** 2   # (B, n2)
+        psis    = [1.0 - hs[l] ** 2 for l in range(L)]           # (B, n) each
+        carries = [psis[l] * w_diags[l] for l in range(L)]        # (B, n) each
 
-        # Carry factors (scalar per neuron): psi[b,i] * W_rec[i,i]
-        carry1 = psi1 * w_diag1   # (B, n1)
-        carry2 = psi2 * w_diag2   # (B, n2)
+        # ── Update self-traces (bottom to top) ────────────────────────────────
+        for l in range(L):
+            c = carries[l]   # (B, n)
+            if d_zero:
+                eps_self_rec[l] = psis[l].unsqueeze(2) * hs_prev[l].unsqueeze(1)
+                eps_self_b[l]   = psis[l]
+                if l == 0:
+                    eps_self_in = psis[0].unsqueeze(2) * x_t.unsqueeze(1)
+                else:
+                    eps_self_ff[l] = psis[l].unsqueeze(2) * hs[l - 1].unsqueeze(1)
+            else:
+                eps_self_rec[l] = (psis[l].unsqueeze(2) * hs_prev[l].unsqueeze(1)
+                                   + c.unsqueeze(2) * eps_self_rec[l])
+                eps_self_b[l]   = psis[l] + c * eps_self_b[l]
+                if l == 0:
+                    eps_self_in = (psis[0].unsqueeze(2) * x_t.unsqueeze(1)
+                                   + c.unsqueeze(2) * eps_self_in)
+                else:
+                    eps_self_ff[l] = (psis[l].unsqueeze(2) * hs[l - 1].unsqueeze(1)
+                                      + c.unsqueeze(2) * eps_self_ff[l])
 
-        # ── Layer-1 eligibility traces ────────────────────────────────────────
-        if d_zero:
-            eps1_rec = psi1.unsqueeze(2) * h1_prev.unsqueeze(1)
-            eps1_in  = psi1.unsqueeze(2) * x_t.unsqueeze(1)
-            eps1_b   = psi1
-        else:
-            eps1_rec = (psi1.unsqueeze(2) * h1_prev.unsqueeze(1)
-                        + carry1.unsqueeze(2) * eps1_rec)
-            eps1_in  = (psi1.unsqueeze(2) * x_t.unsqueeze(1)
-                        + carry1.unsqueeze(2) * eps1_in)
-            eps1_b   = psi1 + carry1 * eps1_b
+        # ── Update cross-layer traces ──────────────────────────────────────────
+        # Process l_top from 1..L-1; within each l_top, l_src from l_top-1..0.
+        # This ensures eps_cross[l_top-1][l_src] is already updated before
+        # we use it in the non-adjacent (l_src < l_top-1) case.
+        for l_top in range(1, L):
+            J_ff = psis[l_top].unsqueeze(2) * W_ffs[l_top - 1]   # (B, n, n)
+            c    = carries[l_top]                                   # (B, n)
 
-        # ── Layer-2 own-param eligibility traces ──────────────────────────────
-        if d_zero:
-            eps2_rec = psi2.unsqueeze(2) * h2_prev.unsqueeze(1)
-            eps2_ff  = psi2.unsqueeze(2) * h1.unsqueeze(1)
-            eps2_b   = psi2
-        else:
-            eps2_rec = (psi2.unsqueeze(2) * h2_prev.unsqueeze(1)
-                        + carry2.unsqueeze(2) * eps2_rec)
-            eps2_ff  = (psi2.unsqueeze(2) * h1.unsqueeze(1)
-                        + carry2.unsqueeze(2) * eps2_ff)
-            eps2_b   = psi2 + carry2 * eps2_b
+            for l_src in range(l_top):
+                adjacent = (l_src == l_top - 1)
 
-        # ── Cross-layer traces: spatial J^{12} applied to layer-1 traces ──────
-        # E-prop approximation:
-        #   In full RTRL the spatial term would be:
-        #     sum_{i1} J12[b,i2,i1] * P^1[b,i1,p,j]
-        #   where P^1[b,i1,p,j] = dh^1_t[i1]/dW_rec^1[p,j] for all i1.
-        #   E-prop approximates P^1[b,i1,p,j] ≈ 0 for i1 ≠ p (diagonal only).
-        #   So only the i1=p term survives:
-        #     spatial_rec[b,i2,p,j] = J12[b,i2,p] * eps1_rec[b,p,j]
-        #
-        # J12[b, i2, i1] = psi2[b,i2] * W_ff[i2, i1]  shape (B, n2, n1)
-        # eps1_rec[b, i1, j]                             shape (B, n1, n1)
-        # spatial_rec[b, i2, i1, j] = J12[b,i2,i1] * eps1_rec[b,i1,j]
-        # einsum 'bpq,bqj->bpqj':  (B,n2,n1) × (B,n1,n1) → (B,n2,n1,n1)
-        J12 = psi2.unsqueeze(2) * W_ff_   # (B, n2, n1)
-        spatial_rec = torch.einsum('bpq,bqj->bpqj', J12, eps1_rec)   # (B,n2,n1,n1)
-        spatial_in  = torch.einsum('bpq,bqj->bpqj', J12, eps1_in)    # (B,n2,n1,n_in)
-        spatial_b   = J12 * eps1_b.unsqueeze(1)                       # (B,n2,n1)
+                # -- Spatial terms -----------------------------------------
+                if adjacent:
+                    # Path of length 1: J_ff @ self-trace of l_src
+                    sp_rec = torch.einsum('bpq,bqj->bpqj', J_ff, eps_self_rec[l_src])
+                    sp_b   = J_ff * eps_self_b[l_src].unsqueeze(1)   # (B, n, n)
+                    if l_src == 0:
+                        sp_in = torch.einsum('bpq,bqj->bpqj', J_ff, eps_self_in)
+                    if l_src > 0:
+                        sp_ff = torch.einsum('bpq,bqj->bpqj', J_ff, eps_self_ff[l_src])
+                else:
+                    # Path of length >1: J_ff @ cross-trace from l_top-1 to l_src
+                    sp_rec = torch.einsum('bpk,bkij->bpij', J_ff, eps_cross_rec[l_top - 1][l_src])
+                    sp_b   = torch.einsum('bpk,bki->bpi',   J_ff, eps_cross_b[l_top - 1][l_src])
+                    if l_src == 0:
+                        sp_in = torch.einsum('bpk,bkij->bpij', J_ff, eps_cross_in[l_top - 1])
+                    if l_src > 0:
+                        sp_ff = torch.einsum('bpk,bkij->bpij', J_ff, eps_cross_ff[l_top - 1][l_src])
 
-        if d_zero:
-            eps21_rec = spatial_rec
-            eps21_in  = spatial_in
-            eps21_b   = spatial_b
-        else:
-            eps21_rec = carry2.unsqueeze(2).unsqueeze(3) * eps21_rec + spatial_rec
-            eps21_in  = carry2.unsqueeze(2).unsqueeze(3) * eps21_in  + spatial_in
-            eps21_b   = carry2.unsqueeze(2)               * eps21_b  + spatial_b
+                # -- Temporal carry + spatial ---------------------------------
+                if d_zero:
+                    eps_cross_rec[l_top][l_src] = sp_rec
+                    eps_cross_b[l_top][l_src]   = sp_b
+                    if l_src == 0:
+                        eps_cross_in[l_top] = sp_in
+                    if l_src > 0:
+                        eps_cross_ff[l_top][l_src] = sp_ff
+                else:
+                    eps_cross_rec[l_top][l_src] = (
+                        c[:, :, None, None] * eps_cross_rec[l_top][l_src] + sp_rec)
+                    eps_cross_b[l_top][l_src] = (
+                        c.unsqueeze(2) * eps_cross_b[l_top][l_src] + sp_b)
+                    if l_src == 0:
+                        eps_cross_in[l_top] = (
+                            c[:, :, None, None] * eps_cross_in[l_top] + sp_in)
+                    if l_src > 0:
+                        eps_cross_ff[l_top][l_src] = (
+                            c[:, :, None, None] * eps_cross_ff[l_top][l_src] + sp_ff)
 
-        # ── Gradient accumulation ─────────────────────────────────────────────
+        # ── Gradient accumulation ──────────────────────────────────────────────
         if mask[t].any():
-            err_out = learning_signal_fn(o, targets[t])
-            err_out = err_out * mask[t].unsqueeze(-1)
+            err_out = learning_signal_fn(o, targets[t]) * mask[t].unsqueeze(-1)
 
-            grad_W_out += (err_out.T @ h2).detach() / B
+            grad_W_out += (err_out.T @ hs[-1]).detach() / B
             grad_b_out += err_out.mean(0).detach()
 
-            delta2 = err_out @ W_out_   # (B, n2) — top-layer learning signal
+            delta = err_out @ W_out_   # (B, n)  learning signal at top hidden layer
+            Lt    = L - 1
 
-            # Layer-2 own params
-            grad_W_rec2 += torch.einsum('bi,bij->ij', delta2, eps2_rec) / B
-            grad_W_ff   += torch.einsum('bi,bij->ij', delta2, eps2_ff)  / B
-            grad_b2     += (delta2 * eps2_b).mean(0)
+            # Top layer own params (self-traces)
+            grad_W_recs[Lt] += torch.einsum('bi,bij->ij', delta, eps_self_rec[Lt]) / B
+            grad_biases[Lt] += (delta * eps_self_b[Lt]).mean(0)
+            if Lt > 0:
+                grad_W_ffs[Lt - 1] += torch.einsum('bi,bij->ij', delta, eps_self_ff[Lt]) / B
 
-            # Layer-1 params (via cross-layer trace)
-            grad_W_rec1 += torch.einsum('bi,bipj->pj', delta2, eps21_rec) / B
-            grad_W_in   += torch.einsum('bi,bipj->pj', delta2, eps21_in)  / B
-            grad_b1     += torch.einsum('bi,bip->p',   delta2, eps21_b)   / B
+            # Lower layers (cross-layer traces from top layer Lt to each l_src)
+            for l_src in range(L - 1):
+                grad_W_recs[l_src] += (
+                    torch.einsum('bi,bipj->pj', delta, eps_cross_rec[Lt][l_src]) / B)
+                grad_biases[l_src] += (
+                    torch.einsum('bi,bip->p', delta, eps_cross_b[Lt][l_src]) / B)
+                if l_src == 0:
+                    grad_W_in += torch.einsum('bi,bipj->pj', delta, eps_cross_in[Lt]) / B
+                if l_src > 0:
+                    grad_W_ffs[l_src - 1] += (
+                        torch.einsum('bi,bipj->pj', delta, eps_cross_ff[Lt][l_src]) / B)
 
-    return {
-        'W_recs.0': grad_W_rec1,
-        'W_recs.1': grad_W_rec2,
-        'W_ffs.0':  grad_W_ff,
-        'W_in':     grad_W_in,
-        'biases.0': grad_b1,
-        'biases.1': grad_b2,
-        'W_out':    grad_W_out,
-        'b_out':    grad_b_out,
-    }
+    # ── Build output dict ──────────────────────────────────────────────────────
+    result = {'W_in': grad_W_in, 'W_out': grad_W_out, 'b_out': grad_b_out}
+    for l in range(L):
+        result[f'W_recs.{l}'] = grad_W_recs[l]
+        result[f'biases.{l}'] = grad_biases[l]
+    for l in range(1, L):
+        result[f'W_ffs.{l - 1}'] = grad_W_ffs[l - 1]
+    return result
 
 
 def mse_error(o: Tensor, target: Tensor) -> Tensor:

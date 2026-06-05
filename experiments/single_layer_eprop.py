@@ -150,8 +150,9 @@ if __name__ == "__main__":
     ax.set_title(f"Store-and-recall  (delay={DELAY}, single layer)")
     ax.legend()
     fig.tight_layout()
-    fig.savefig("results/learning_curves.png", dpi=150)
-    print("Saved results/learning_curves.png")
+    fig.savefig("results/learning_curves.pdf")
+    fig.savefig("results/learning_curves.svg")
+    print("Saved results/learning_curves.pdf / .svg")
 
     print("\n=== Gradient cosine similarity vs delay ===")
     delays = [1, 2, 3, 5, 10, 20, 50]
@@ -166,8 +167,9 @@ if __name__ == "__main__":
     ax.set_title("Gradient alignment with BPTT — single layer, untrained model")
     ax.legend()
     fig.tight_layout()
-    fig.savefig("results/cosine_vs_delay.png", dpi=150)
-    print("Saved results/cosine_vs_delay.png")
+    fig.savefig("results/cosine_vs_delay.pdf")
+    fig.savefig("results/cosine_vs_delay.svg")
+    print("Saved results/cosine_vs_delay.pdf / .svg")
 
     print("\n=== Final accuracy by delay (500 training steps) ===")
     delay_sweep = [1, 2, 3, 5, 10, 20]
@@ -198,5 +200,6 @@ if __name__ == "__main__":
     ax.set_title("Store-and-recall accuracy vs delay — single layer")
     ax.legend()
     fig.tight_layout()
-    fig.savefig("results/accuracy_vs_delay.png", dpi=150)
-    print("Saved results/accuracy_vs_delay.png")
+    fig.savefig("results/accuracy_vs_delay.pdf")
+    fig.savefig("results/accuracy_vs_delay.svg")
+    print("Saved results/accuracy_vs_delay.pdf / .svg")

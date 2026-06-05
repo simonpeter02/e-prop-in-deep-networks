@@ -204,8 +204,9 @@ if __name__ == "__main__":
         ax.set_ylim(-0.1, 1.05)
     fig.suptitle('Deep e-prop and d=0 gradient alignment with BPTT')
     fig.tight_layout()
-    fig.savefig('results/deep_cosine_by_layer.png', dpi=150)
-    print("\nSaved results/deep_cosine_by_layer.png")
+    fig.savefig('results/deep_cosine_by_layer.pdf')
+    fig.savefig('results/deep_cosine_by_layer.svg')
+    print("\nSaved results/deep_cosine_by_layer.pdf / .svg")
 
     # Combined comparison (all params) on one plot
     fig, ax = plt.subplots(figsize=(7, 4))
@@ -224,8 +225,9 @@ if __name__ == "__main__":
     ax.legend(fontsize=8)
     ax.set_ylim(-0.1, 1.05)
     fig.tight_layout()
-    fig.savefig('results/deep_cosine_combined.png', dpi=150)
-    print("Saved results/deep_cosine_combined.png")
+    fig.savefig('results/deep_cosine_combined.pdf')
+    fig.savefig('results/deep_cosine_combined.svg')
+    print("Saved results/deep_cosine_combined.pdf / .svg")
 
     # ── Part C ────────────────────────────────────────────────────────────────
     print("\n=== Part C: Learning curves (2-layer, delay=2) ===")
@@ -244,5 +246,6 @@ if __name__ == "__main__":
     ax.set_title(f'Store-and-recall (delay={DELAY_MAIN}, 2-layer RNN)')
     ax.legend()
     fig.tight_layout()
-    fig.savefig('results/deep_learning_curves.png', dpi=150)
-    print("Saved results/deep_learning_curves.png")
+    fig.savefig('results/deep_learning_curves.pdf')
+    fig.savefig('results/deep_learning_curves.svg')
+    print("Saved results/deep_learning_curves.pdf / .svg")
