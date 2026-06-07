@@ -226,3 +226,8 @@ def compute_deep_eprop_gradients(
 
 def mse_error(o: Tensor, target: Tensor) -> Tensor:
     return o - target
+
+
+def xent_error(o: Tensor, target: Tensor) -> Tensor:
+    """Per-sample cross-entropy error signal: softmax(o) − target."""
+    return torch.softmax(o, dim=-1) - target

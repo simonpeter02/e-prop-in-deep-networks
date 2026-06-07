@@ -55,3 +55,10 @@ def _mse_loss(outputs: Tensor, targets: Tensor, mask: Tensor) -> Tensor:
     # outputs, targets: (T, B, n_out); mask: (T, B)
     sq = ((outputs - targets) ** 2).sum(-1)  # (T, B)
     return (sq * mask).sum() / (mask.sum() * outputs.shape[-1])
+
+
+def _xent_loss(outputs: Tensor, targets: Tensor, mask: Tensor) -> Tensor:
+    # outputs, targets: (T, B, n_out); mask: (T, B)
+    log_p = torch.log_softmax(outputs, dim=-1)   # (T, B, n_out)
+    ce    = -(targets * log_p).sum(-1)            # (T, B)
+    return (ce * mask).sum() / mask.sum()
