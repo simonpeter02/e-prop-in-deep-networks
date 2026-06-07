@@ -422,7 +422,7 @@ def fig_credit_assignment():
 if __name__ == '__main__':
     figs = [
         (fig_single_layer(),           'single_layer_rnn'),
-        (fig_deep_rnn(L=3),            'deep_rnn'),
+        (fig_deep_rnn(L=3),            'deep_rnn_3layer'),
         (fig_eprop_trace(),            'eprop_trace_timeline'),
         (fig_deep_eprop_propagation(), 'deep_eprop_propagation'),
         (fig_store_and_recall(),       'store_and_recall_task'),
