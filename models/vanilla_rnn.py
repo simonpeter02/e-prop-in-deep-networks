@@ -1,5 +1,5 @@
 """
-Single-layer vanilla RNN with tanh activations.
+Single-layer vanilla RNN and leaky integrator RNN with tanh activations.
 
   h_t = tanh(W_rec @ h_{t-1} + W_in @ x_t + b_rec)
   o_t = W_out @ h_t + b_out
@@ -55,6 +55,66 @@ class VanillaRNN(nn.Module):
         h = self.init_hidden(B, device=inputs.device)
         outputs = []
         hiddens = [h]
+        for t in range(T):
+            h, o = self.step(inputs[t], h)
+            outputs.append(o)
+            hiddens.append(h)
+        return torch.stack(outputs, dim=0), hiddens
+
+
+class LeakyRNN(nn.Module):
+    """
+    Leaky integrator tanh RNN.
+
+      h_t = (1 - alpha) * h_{t-1}  +  alpha * tanh(W_rec @ h_{t-1} + W_in @ x_t + b_rec)
+      o_t = W_out @ h_t + b_out
+
+    Compared with VanillaRNN (which is the special case alpha=1):
+
+    - The diagonal Jacobian ∂h_t[i]/∂h_{t-1}[i]
+        = (1 - alpha) + alpha * psi_t[i] * W_rec[i,i]
+
+      For alpha=0.1 the dominant carry is (1-alpha)=0.9 per step, making the
+      e-prop eligibility trace survive ~1/(1-0.9)=10 steps.
+
+    - d=0 sets the carry to zero and misses the (1-alpha) leak term entirely,
+      creating a large, controllable gap versus e-prop.
+
+    - alpha=1 recovers VanillaRNN exactly.
+    """
+
+    def __init__(self, n_in: int, n_rec: int, n_out: int, alpha: float = 0.1):
+        super().__init__()
+        assert 0.0 < alpha <= 1.0, "alpha must be in (0, 1]"
+        self.n_in  = n_in
+        self.n_rec = n_rec
+        self.n_out = n_out
+        self.alpha = alpha
+
+        W_rec = torch.randn(n_rec, n_rec) / (n_rec ** 0.5)
+        with torch.no_grad():
+            sr = torch.linalg.eigvals(W_rec).abs().max().item()
+            W_rec *= 0.9 / sr
+        self.W_rec = nn.Parameter(W_rec)
+
+        self.W_in  = nn.Parameter(torch.randn(n_rec, n_in) / (n_in ** 0.5))
+        self.b_rec = nn.Parameter(torch.zeros(n_rec))
+        self.W_out = nn.Parameter(torch.randn(n_out, n_rec) / (n_rec ** 0.5))
+        self.b_out = nn.Parameter(torch.zeros(n_out))
+
+    def init_hidden(self, batch_size: int, device=None) -> Tensor:
+        return torch.zeros(batch_size, self.n_rec, device=device or self.W_rec.device)
+
+    def step(self, x: Tensor, h: Tensor) -> Tuple[Tensor, Tensor]:
+        pre   = x @ self.W_in.T + h @ self.W_rec.T + self.b_rec
+        h_new = (1 - self.alpha) * h + self.alpha * torch.tanh(pre)
+        o_new = h_new @ self.W_out.T + self.b_out
+        return h_new, o_new
+
+    def forward(self, inputs: Tensor) -> Tuple[Tensor, List[Tensor]]:
+        T, B, _ = inputs.shape
+        h = self.init_hidden(B, device=inputs.device)
+        outputs, hiddens = [], [h]
         for t in range(T):
             h, o = self.step(inputs[t], h)
             outputs.append(o)
