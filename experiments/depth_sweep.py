@@ -183,7 +183,7 @@ if __name__ == "__main__":
 
     fig.suptitle('Gradient alignment vs network depth — e-prop approximations')
     fig.tight_layout()
-    save_fig(fig, 'depth_cosine_by_delay')
+    save_fig(fig, 'exp3_depth_sweep_tanh_store_recall_cosine_vs_depth')
     plt.close(fig)
 
     # Plot 2: cosine vs depth, all delays and methods on one plot
@@ -203,7 +203,7 @@ if __name__ == "__main__":
     ax.legend(fontsize=7, ncol=2)
     ax.set_ylim(-0.05, 1.05)
     fig.tight_layout()
-    save_fig(fig, 'depth_cosine_combined')
+    save_fig(fig, 'exp3_depth_sweep_tanh_store_recall_cosine_combined')
     plt.close(fig)
 
     # ── Part B ────────────────────────────────────────────────────────────────
@@ -228,7 +228,7 @@ if __name__ == "__main__":
         ax.set_ylim(-0.05, 1.05)
     fig.suptitle('Learning curves by depth — store-and-recall (delay=2)')
     fig.tight_layout()
-    save_fig(fig, 'depth_learning_curves')
+    save_fig(fig, 'exp3_depth_sweep_tanh_store_recall_delay2_learning_curves')
     plt.close(fig)
 
     # Plot 4: final accuracy vs depth for all methods
@@ -244,5 +244,5 @@ if __name__ == "__main__":
     ax.legend()
     ax.set_ylim(-0.05, 1.05)
     fig.tight_layout()
-    save_fig(fig, 'depth_final_accuracy')
+    save_fig(fig, 'exp3_depth_sweep_tanh_store_recall_delay2_final_accuracy')
     plt.close(fig)
