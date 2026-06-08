@@ -76,6 +76,19 @@ def compute_eprop_lif_gradients(
     s        = torch.zeros(B, n, device=dev)
     psi_prev = torch.zeros(B, n, device=dev)
 
+    # alpha may be a scalar float (uniform LIF) or a (n,) tensor (hetero LIF).
+    # Normalise to a tensor so broadcasting is unambiguous in the trace updates.
+    alpha_t = (alpha if isinstance(alpha, torch.Tensor)
+               else torch.tensor(alpha, device=dev))
+    # oma_col: (1-alpha) shaped for the "output neuron i" axis in (B, n, n/n_in)
+    # For scalar: shape () broadcasts fine; for vector (n,): reshape to (1, n, 1).
+    if alpha_t.dim() > 0:
+        oma_col = (1 - alpha_t).view(1, -1, 1)   # (1, n, 1)
+        oma_vec = (1 - alpha_t)                   # (n,)  for P_b
+    else:
+        oma_col = (1 - alpha_t)                   # scalar
+        oma_vec = (1 - alpha_t)                   # scalar
+
     for t in range(T):
         x_t = inputs[t]
 
@@ -89,17 +102,18 @@ def compute_eprop_lif_gradients(
             o     = s_new @ W_out_.T + model.b_out
 
         # ── Update membrane traces ────────────────────────────────────────────
-        # carry[b,i] = alpha - v_th * psi_{t-1}[b,i]   (e-prop)
-        #            = 0                                 (d=0)
+        # carry[b,i] = alpha_i - v_th * psi_{t-1}[b,i]   (e-prop)
+        #            = 0                                   (d=0)
         if d_zero:
             carry = torch.zeros(B, n, device=dev)
         else:
-            carry = alpha - v_th * psi_prev    # (B, n); can dip below alpha
+            carry = alpha - v_th * psi_prev    # (B, n) for scalar α; broadcasts for vector
 
-        # P_t[b,i,j] = carry[b,i] * P_{t-1}[b,i,j] + (1-alpha) * presynaptic[b,j]
-        P_rec = carry.unsqueeze(2) * P_rec + (1 - alpha) * s.unsqueeze(1)
-        P_in  = carry.unsqueeze(2) * P_in  + (1 - alpha) * x_t.unsqueeze(1)
-        P_b   = carry * P_b + (1 - alpha)
+        # P_t[b,i,j] = carry[b,i] * P_{t-1}[b,i,j] + (1-alpha_i) * presynaptic[b,j]
+        # oma_col is (1,n,1) for hetero or scalar for uniform — both broadcast to (B,n,n)
+        P_rec = carry.unsqueeze(2) * P_rec + oma_col * s[:, None, :]
+        P_in  = carry.unsqueeze(2) * P_in  + oma_col * x_t[:, None, :]
+        P_b   = carry * P_b + oma_vec
 
         # ── Gradient accumulation (only at masked timesteps) ──────────────────
         if mask[t].any():

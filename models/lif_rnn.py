@@ -20,6 +20,7 @@ v_th   : spike threshold (normalised to 1.0 by convention)
 gamma  : surrogate gradient peak magnitude, default 0.3
 """
 
+import math
 import torch
 import torch.nn as nn
 from torch import Tensor
@@ -106,4 +107,97 @@ class LIFNetwork(nn.Module):
         outputs = torch.stack(o_list)   # (T, B, n_out)
         u_seq   = torch.stack(u_list)   # (T, B, n_rec)
         s_seq   = torch.stack(s_list)   # (T, B, n_rec)
+        return outputs, (u_seq, s_seq)
+
+
+class LIFHeteroNetwork(nn.Module):
+    """
+    LIF recurrent network with heterogeneous membrane time constants.
+
+    Each neuron i has its own decay constant alpha_i, spaced log-uniformly
+    from alpha_min to alpha_max:
+
+        alpha_i = exp( linspace(log(alpha_min), log(alpha_max), n_rec)[i] )
+
+    This gives membrane time constants ranging from
+        tau_min = -1 / log(alpha_min)  to  tau_max = -1 / log(alpha_max)
+
+    Example (alpha_min=0.9, alpha_max=0.999):
+        tau_min ≈ 10 steps,   tau_max ≈ 1000 steps
+
+    The e-prop carry is already per-neuron in eprop_lif.py:
+        c_t[b,i] = alpha_i − v_th * psi_{t-1}[b,i]
+    so the existing learning rule works without modification as long as
+    eprop_lif handles a tensor (not scalar) alpha — which it does after
+    the corresponding update to compute_eprop_lif_gradients.
+
+    Biologically, neurons in cortex span at least two decades in membrane
+    time constant (10–1000 ms).  A uniform-alpha LIF is a special case;
+    this class makes the distribution explicit and learnable if desired.
+    """
+
+    def __init__(
+        self,
+        n_in:      int,
+        n_rec:     int,
+        n_out:     int,
+        alpha_min: float = 0.9,
+        alpha_max: float = 0.999,
+        v_th:      float = 0.1,
+        gamma:     float = 0.3,
+    ):
+        super().__init__()
+        self.n_in  = n_in
+        self.n_rec = n_rec
+        self.n_out = n_out
+        self.v_th  = v_th
+        self.gamma = gamma
+
+        log_a = torch.linspace(math.log(alpha_min), math.log(alpha_max), n_rec)
+        self.register_buffer('alpha', torch.exp(log_a))   # (n_rec,) — not a learned param
+
+        self.W_in  = nn.Parameter(torch.randn(n_rec, n_in)  / n_in  ** 0.5)
+        self.W_rec = nn.Parameter(torch.randn(n_rec, n_rec) / n_rec ** 0.5)
+        self.b_rec = nn.Parameter(torch.zeros(n_rec))
+        self.W_out = nn.Parameter(torch.randn(n_out, n_rec) / n_rec ** 0.5)
+        self.b_out = nn.Parameter(torch.zeros(n_out))
+
+        with torch.no_grad():
+            sr = torch.linalg.eigvals(self.W_rec).abs().max().item()
+            self.W_rec.data *= 0.9 / sr
+
+    def forward(self, inputs: Tensor) -> Tuple[Tensor, Tuple]:
+        """
+        inputs : (T, B, n_in)
+
+        Returns
+        -------
+        outputs : (T, B, n_out)
+        state   : (u_seq, s_seq)  each (T, B, n_rec)
+        """
+        T, B, _ = inputs.shape
+        dev   = inputs.device
+        alpha = self.alpha   # (n_rec,) — broadcasts over batch
+
+        u = torch.zeros(B, self.n_rec, device=dev)
+        s = torch.zeros(B, self.n_rec, device=dev)
+
+        u_list, s_list, o_list = [], [], []
+
+        for t in range(T):
+            x = inputs[t]
+            u_new = (alpha * u
+                     + (1 - alpha) * (s @ self.W_rec.T + x @ self.W_in.T + self.b_rec)
+                     - self.v_th * s)
+            s_new = SpikeFn.apply(u_new - self.v_th, self.gamma)
+            o     = s_new @ self.W_out.T + self.b_out
+
+            u, s = u_new, s_new
+            u_list.append(u_new.detach())
+            s_list.append(s_new)
+            o_list.append(o)
+
+        outputs = torch.stack(o_list)
+        u_seq   = torch.stack(u_list)
+        s_seq   = torch.stack(s_list)
         return outputs, (u_seq, s_seq)
