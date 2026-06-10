@@ -201,6 +201,11 @@ def compute_deep_eprop_gradients(
             grad_biases[Lt] += (delta * eps_self_b[Lt]).mean(0)
             if Lt > 0:
                 grad_W_ffs[Lt - 1] += torch.einsum('bi,bij->ij', delta, eps_self_ff[Lt]) / B
+            # BUG FIX: W_in belongs to layer 0. For L=1 (Lt=0), layer 0 is also
+            # the top layer, so its W_in gradient comes from the self-trace.
+            # For L>=2 (Lt>=1) it is handled via the cross-trace loop below.
+            if Lt == 0:
+                grad_W_in += torch.einsum('bi,bij->ij', delta, eps_self_in) / B
 
             # Lower layers (cross-layer traces from top layer Lt to each l_src)
             for l_src in range(L - 1):

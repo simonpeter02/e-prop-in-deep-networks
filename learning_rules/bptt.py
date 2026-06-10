@@ -2,46 +2,46 @@
 BPTT gradient computation — ground-truth reference.
 
 Uses PyTorch autograd through the full unrolled sequence.
-Returns per-parameter gradient tensors matching e-prop's dictionary format.
+Returns per-parameter gradient tensors as a dict keyed by model.named_parameters()
+names — works for VanillaRNN, LeakyRNN, DeepRNN, and any other nn.Module whose
+forward() returns (outputs, hiddens).
 """
 
 import torch
 from torch import Tensor
-from models.vanilla_rnn import VanillaRNN
 from typing import Dict
 
 
 def compute_bptt_gradients(
-    model: VanillaRNN,
+    model,
     inputs: Tensor,
     targets: Tensor,
     mask: Tensor,
     loss_fn=None,
 ) -> Dict[str, Tensor]:
-    """
-    Run the full sequence forward via autograd, compute loss, backprop.
+    """Run the full sequence forward, compute loss, backprop.
 
-    loss_fn : callable(outputs, targets, mask) -> scalar loss
+    Works for any nn.Module whose forward() returns (outputs, _) and whose
+    trainable parameters are in named_parameters().
+
+    loss_fn : callable(outputs, targets, mask) -> scalar
               defaults to MSE over masked timesteps
     """
     if loss_fn is None:
         loss_fn = _mse_loss
 
-    # Zero any existing gradients
     for p in model.parameters():
         if p.grad is not None:
             p.grad.zero_()
 
-    outputs, _ = model(inputs)  # (T, B, n_out)
+    outputs, _ = model(inputs)   # (T, B, n_out)
     loss = loss_fn(outputs, targets, mask)
     loss.backward()
 
     grads = {
-        'W_rec': model.W_rec.grad.clone(),
-        'W_in':  model.W_in.grad.clone(),
-        'b_rec': model.b_rec.grad.clone(),
-        'W_out': model.W_out.grad.clone(),
-        'b_out': model.b_out.grad.clone(),
+        name: p.grad.clone()
+        for name, p in model.named_parameters()
+        if p.grad is not None
     }
 
     for p in model.parameters():
