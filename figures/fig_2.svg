@@ -6,7 +6,7 @@
   <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
    <cc:Work>
     <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
-    <dc:date>2026-06-08T09:19:56.028543</dc:date>
+    <dc:date>2026-06-10T15:16:50.901104</dc:date>
     <dc:format>image/svg+xml</dc:format>
     <dc:creator>
      <cc:Agent>
@@ -35,7 +35,7 @@ C 216.737409 98.051909 214.094188 96.323188 211.05066 95.132274
 C 208.007132 93.94136 204.646987 93.321 201.24 93.321 
 C 197.833013 93.321 194.472868 93.94136 191.42934 95.132274 
 C 188.385812 96.323188 185.742591 98.051909 183.711892 100.179642 
-" clip-path="url(#pae71767d5b)" style="fill: none; stroke: #1f77b4; stroke-width: 2; stroke-linejoin: miter"/>
+" clip-path="url(#p97ad8636bd)" style="fill: none; stroke: #1f77b4; stroke-width: 2; stroke-linejoin: miter"/>
    </g>
    <g id="patch_3">
     <path d="M 74.687198 136.98 
@@ -75,7 +75,7 @@ C 40.520462 128.158313 38.7315 132.477249 38.7315 136.98
 C 38.7315 141.482751 40.520462 145.801687 43.704388 148.985612 
 C 46.888313 152.169538 51.207249 153.9585 55.71 153.9585 
 z
-" clip-path="url(#pae71767d5b)" style="fill: #ffeecc; stroke: #886600; stroke-width: 1.5; stroke-linejoin: miter"/>
+" clip-path="url(#p97ad8636bd)" style="fill: #ffeecc; stroke: #886600; stroke-width: 1.5; stroke-linejoin: miter"/>
    </g>
    <g id="patch_7">
     <path d="M 201.24 153.9585 
@@ -88,7 +88,7 @@ C 186.050462 128.158313 184.2615 132.477249 184.2615 136.98
 C 184.2615 141.482751 186.050462 145.801687 189.234388 148.985612 
 C 192.418313 152.169538 196.737249 153.9585 201.24 153.9585 
 z
-" clip-path="url(#pae71767d5b)" style="fill: #ddeeff; stroke: #335577; stroke-width: 1.5; stroke-linejoin: miter"/>
+" clip-path="url(#p97ad8636bd)" style="fill: #ddeeff; stroke: #335577; stroke-width: 1.5; stroke-linejoin: miter"/>
    </g>
    <g id="patch_8">
     <path d="M 346.77 153.9585 
@@ -101,7 +101,7 @@ C 331.580462 128.158313 329.7915 132.477249 329.7915 136.98
 C 329.7915 141.482751 331.580462 145.801687 334.764388 148.985612 
 C 337.948313 152.169538 342.267249 153.9585 346.77 153.9585 
 z
-" clip-path="url(#pae71767d5b)" style="fill: #eeffee; stroke: #336633; stroke-width: 1.5; stroke-linejoin: miter"/>
+" clip-path="url(#p97ad8636bd)" style="fill: #eeffee; stroke: #336633; stroke-width: 1.5; stroke-linejoin: miter"/>
    </g>
    <g id="text_1">
     <!-- $W_{in}$ -->
@@ -1132,7 +1132,7 @@ z
   </g>
  </g>
  <defs>
-  <clipPath id="pae71767d5b">
+  <clipPath id="p97ad8636bd">
    <rect x="7.2" y="39.96" width="388.08" height="194.04"/>
   </clipPath>
  </defs>
