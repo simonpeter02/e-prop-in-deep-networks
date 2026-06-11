@@ -123,6 +123,48 @@ Detected by `tests/sanity_checks.py` Test 2 ("depth-1 deep e-prop == single-laye
 
 ---
 
+---
+
+## [2026-06-11] Exp 4 learning curves redesign
+
+### Motivation
+
+Exp 4's original single-panel learning curve (D=5, single delay, MSE loss) did not
+demonstrate a clear e-prop vs d=0 difference.  Investigation revealed two issues:
+
+1. **LR too small** (`LR_LK = 1e-3`): the relative W_out update was ~1e-4/step;
+   neither method converged within 1000 steps.
+
+2. **Wrong loss**: MSE for a 4-class task under-penalises confident wrong predictions;
+   cross-entropy is better calibrated.
+
+### Changes to `deep_eprop_colab.ipynb`
+
+**Master config (cell 6)**:
+- `LR_LK`: `1e-3` → `5e-3`
+- `N_STEPS_LK`: `1000` → `2000`
+
+**Exp 4 setup (cell 28)**:
+- `BATCH_LK`: `BATCH_DEFAULT` → `256` (explicit; larger batch → more stable gradient estimates)
+
+**Exp 4 learning curves (cell 31) — complete redesign**:
+- **Two-panel figure**: D=5 (left, control) vs D=20 (right, critical)
+  - D=5 < τ=10: e-prop ≈ d=0 ≈ BPTT — all converge; trace has minimal impact
+  - D=20 = 2τ: d=0 never reliably reaches full accuracy; e-prop and BPTT converge
+- **Fixed evaluation batch** (1024 samples, seeded, not the training mini-batch):
+  removes the per-step noise that made the original curves look like chance
+- **Gradient clipping** (global max_norm=1.0) applied uniformly to both methods:
+  stabilises SGD without changing gradient directions; clip is methodologically fair
+- **Smooth overlay**: 5-point centred moving average drawn on top of raw dots
+- **Loss**: `xent_error` / `_xent_loss` throughout (was `sl_mse`)
+
+**Exp 5 learning curves (cell 36)**:
+- Changed from D=`DELAY_LC_CA` (20) to D=50 (hardcoded as `DELAY_LC_CA_SHOW`)
+- Updated methodological comment: "qualitative illustration" at D≈τ for the
+  cue accumulation task; gradient cosine (cell 34) remains the primary result
+
+---
+
 ### Deferred (TODO stubs only)
 
 - Classify-then-count compositional variant of cue_accumulation
