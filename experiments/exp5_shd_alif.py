@@ -56,7 +56,9 @@ N_STEPS    = 3000
 EVAL_EVERY = 100
 LR         = 1e-3
 GRAD_CLIP  = 1.0
-DEVICE     = "cpu"
+DEVICE     = ("cuda" if torch.cuda.is_available()
+              else "mps" if torch.backends.mps.is_available()
+              else "cpu")
 
 T_SWEEP         = [10, 20, 50, 100]
 N_COSINE_TRIALS = 50

@@ -49,7 +49,7 @@ def _download_shd(split: str) -> None:
         return
     print(f"Downloading SHD {split} split from Zenodo (≈100–200 MB) ...")
     subprocess.run(
-        ['wget', '-q', '--show-progress', '-O', gz_path, _URLS[split]],
+        ['curl', '-L', '--progress-bar', '-o', gz_path, _URLS[split]],
         check=True,
     )
     print("Decompressing ...")
