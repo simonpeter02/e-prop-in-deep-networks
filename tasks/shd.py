@@ -136,3 +136,20 @@ def task_accuracy(outputs: Tensor, targets: Tensor, mask: Tensor) -> float:
     pred  = outputs[-1].argmax(-1)
     label = targets[-1].argmax(-1)
     return (pred == label).float().mean().item()
+
+
+def iterate_split(split: str, batch_size: int, device: str = 'cpu'):
+    """Yield (inputs, targets, mask) batches covering the full split in order (no shuffle)."""
+    spikes, labels = _load_shd(split)
+    N = len(labels)
+    for start in range(0, N, batch_size):
+        end  = min(start + batch_size, N)
+        b    = end - start
+        seqs = torch.from_numpy(spikes[start:end]).permute(1, 0, 2).to(device)  # (T, b, 700)
+        tgts = torch.zeros(T_SHD, b, N_CLASSES, device=device)
+        tgts[-1] = F.one_hot(
+            torch.from_numpy(labels[start:end]).long(), N_CLASSES
+        ).float().to(device)
+        msk        = torch.zeros(T_SHD, b, device=device)
+        msk[-1]    = 1.0
+        yield seqs, tgts, msk

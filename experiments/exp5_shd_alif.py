@@ -18,7 +18,7 @@ Run:
 SHD is auto-downloaded to /tmp/ on first run (~150 MB).
 """
 
-import sys, os
+import sys, os, json
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
@@ -28,7 +28,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from tasks.shd                      import generate_batch, task_accuracy, T_SHD, N_IN_SHD, N_CLASSES
+from tasks.shd                      import generate_batch, task_accuracy, iterate_split, T_SHD, N_IN_SHD, N_CLASSES
 from models.deep_alif               import DeepALIFNetwork
 from learning_rules.deep_eprop_alif import compute_deep_eprop_alif_gradients, xent_error
 from learning_rules.bptt            import compute_bptt_gradients, _xent_loss
@@ -52,7 +52,7 @@ W_IN_SCALE = 5.0
 W_FF_SCALE = 8.0
 
 BATCH_SIZE = 64
-N_STEPS    = 3000
+N_STEPS    = 5000
 EVAL_EVERY = 100
 LR         = 1e-3
 GRAD_CLIP  = 1.0
@@ -103,6 +103,19 @@ def check_firing_rates(model: DeepALIFNetwork, n_batches: int = 5):
         print(f"  Layer {l}: firing rate = {rate:.4f}  dead = {dead:.1%}")
 
 
+def evaluate(model: DeepALIFNetwork, split: str = 'test') -> float:
+    """Accuracy over the full split (not a single random batch)."""
+    correct, total = 0, 0
+    for inputs, targets, mask in iterate_split(split, BATCH_SIZE, DEVICE):
+        with torch.no_grad():
+            outputs, _ = model(inputs)
+        pred  = outputs[-1].argmax(-1)
+        label = targets[-1].argmax(-1)
+        correct += (pred == label).sum().item()
+        total   += inputs.shape[1]
+    return correct / total
+
+
 def apply_eprop_grads(model, grads, optimizer):
     for name, p in model.named_parameters():
         p.grad = grads.get(name, torch.zeros_like(p))
@@ -111,10 +124,22 @@ def apply_eprop_grads(model, grads, optimizer):
     optimizer.zero_grad()
 
 
+def ema_smooth(values: list, alpha: float = 0.3) -> list:
+    """Exponential moving average with weight alpha on the new value."""
+    if not values:
+        return values
+    smoothed = [values[0]]
+    for v in values[1:]:
+        smoothed.append(alpha * v + (1.0 - alpha) * smoothed[-1])
+    return smoothed
+
+
 def train(label: str, use_bptt: bool = False, d_zero: bool = False) -> dict:
     torch.manual_seed(SEED)
     model = make_model()
-    optim = torch.optim.Adam(model.parameters(), lr=LR)
+    # Cosine LR schedule: starts at LR, decays to 0 over N_STEPS
+    optim    = torch.optim.Adam(model.parameters(), lr=LR)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, T_max=N_STEPS, eta_min=0.0)
 
     accs_train, accs_test, steps_log = [], [], []
 
@@ -132,15 +157,13 @@ def train(label: str, use_bptt: bool = False, d_zero: bool = False) -> dict:
                 model, inputs, targets, mask, xent_error, d_zero=d_zero)
             apply_eprop_grads(model, grads, optim)
 
+        scheduler.step()
+
         if step % EVAL_EVERY == 0:
             with torch.no_grad():
                 outputs, _ = model(inputs)
-            acc_tr = task_accuracy(outputs, targets, mask)
-
-            t_in, t_tgt, t_msk = generate_batch(BATCH_SIZE, device=DEVICE, train=False)
-            with torch.no_grad():
-                t_out, _ = model(t_in)
-            acc_te = task_accuracy(t_out, t_tgt, t_msk)
+            acc_tr = task_accuracy(outputs, targets, mask)   # train: single batch is fine
+            acc_te = evaluate(model, 'test')                 # test: full dataset
 
             accs_train.append(acc_tr)
             accs_test.append(acc_te)
@@ -200,23 +223,39 @@ if __name__ == "__main__":
 
     steps = res_bptt['steps']
 
+    # ── Save raw numbers so we can replot without re-running ──────────────────
+    raw = {
+        'bptt':  res_bptt,
+        'eprop': res_eprop,
+        'd0':    res_d0,
+    }
+    with open("results/exp5_shd_alif_curves.json", "w") as f:
+        json.dump(raw, f, indent=2)
+    print("\nSaved results/exp5_shd_alif_curves.json")
+
+    # ── Plot with EMA smoothing ───────────────────────────────────────────────
     fig, ax = plt.subplots(figsize=(7, 4))
-    for res, label, marker in [
-        (res_bptt,  "BPTT",   "^"),
-        (res_eprop, "e-prop", "o"),
-        (res_d0,    "d=0",    "s"),
+    for res, label, color, marker in [
+        (res_bptt,  "BPTT",   "C0", "^"),
+        (res_eprop, "e-prop", "C1", "o"),
+        (res_d0,    "d=0",    "C2", "s"),
     ]:
-        ax.plot(steps, res['test'], label=label, marker=marker, markersize=3)
+        raw_te   = res['test']
+        smooth_te = ema_smooth(raw_te, alpha=0.3)
+        ax.plot(steps, raw_te,    color=color, alpha=0.25, linewidth=0.8)
+        ax.plot(steps, smooth_te, color=color, label=label, marker=marker,
+                markersize=3, markevery=5)
+
     ax.axhline(1.0 / N_CLASSES, color="gray", linestyle="--", label="chance (1/20)")
     ax.set_xlabel("Training step")
-    ax.set_ylabel("Test accuracy")
+    ax.set_ylabel("Test accuracy (full test set)")
     ax.set_title(f"SHD — deep ALIF ({N_LAYERS}×{N_REC})  α={ALPHA}  ρ={RHO}  β={BETA}")
     ax.legend()
     fig.tight_layout()
     fig.savefig("results/exp5_shd_alif_learning_curves.pdf")
     fig.savefig("results/exp5_shd_alif_learning_curves.svg")
     plt.close(fig)
-    print("\nSaved results/exp5_shd_alif_learning_curves.pdf/.svg")
+    print("Saved results/exp5_shd_alif_learning_curves.pdf/.svg")
 
     print("\n=== Gradient cosine similarity vs T_use ===")
     cos_e, cos_d = cosine_vs_T()
