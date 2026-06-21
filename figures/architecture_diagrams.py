@@ -418,15 +418,126 @@ def fig_credit_assignment():
     return fig
 
 
+# ── 7. Credit assignment paths in a deep RNN ─────────────────────────────────
+def fig_deep_credit_assignment():
+    """Companion to fig_credit_assignment for 2-layer deep RNNs.
+
+    Shows that credit must travel both through time (horizontal) and through
+    layers (vertical / spatial).  BPTT does both exactly; deep e-prop
+    approximates the temporal carry but propagates spatially exactly via J_ff;
+    d=0 has no temporal carry but retains the exact spatial propagation.
+    """
+    T  = 4
+    y1 = 0.7    # layer 1
+    y2 = 2.1    # layer 2
+    yL = 3.2    # loss
+    r  = 0.27
+
+    colors_l = ['#FFEECC', '#DDEEFF']
+    ecs_l    = ['#886600', '#335577']
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5.5))
+
+    for ax, title, method in zip(axes,
+                                  ['BPTT', 'Deep E-prop', 'd=0'],
+                                  ['bptt', 'eprop', 'd0']):
+        ax.set_xlim(-0.9, T + 0.1)
+        ax.set_ylim(-0.9, 3.9)
+        ax.axis('off')
+        ax.set_title(title, fontsize=13, fontweight='bold', pad=6)
+
+        # nodes
+        for t in range(T):
+            last = (t == T - 1)
+            node(ax, t, y1, rf'$h^1_{t}$', r=r,
+                 color='#FFDDAA' if last else colors_l[0], ec=ecs_l[0], fontsize=7)
+            node(ax, t, y2, rf'$h^2_{t}$', r=r,
+                 color='#AADDCC' if last else colors_l[1], ec=ecs_l[1], fontsize=7)
+        node(ax, T-1, yL, r'$\mathcal{L}$', r=r, color='#FFEECC', ec='#AA6600',
+             fontsize=10)
+        arrow(ax, (T-1, y2+r), (T-1, yL-r), color='#AA6600', lw=1.5)
+
+        # gray forward skeleton
+        for t in range(T - 1):
+            arrow(ax, (t+r, y1), (t+1-r, y1), color='#CCCCCC', lw=1.0)
+            arrow(ax, (t+r, y2), (t+1-r, y2), color='#CCCCCC', lw=1.0)
+        for t in range(T):
+            arrow(ax, (t, y1+r), (t, y2-r), color='#CCCCCC', lw=1.0)
+
+        ax.text(-0.72, y1, 'L1', ha='center', va='center', fontsize=9,
+                color='gray', fontweight='bold')
+        ax.text(-0.72, y2, 'L2', ha='center', va='center', fontsize=9,
+                color='gray', fontweight='bold')
+
+        # credit paths
+        if method == 'bptt':
+            # temporal: exact backward at both layers (red ←, below nodes)
+            for t in range(T - 1, 0, -1):
+                arrow(ax, (t-r, y1-0.38), (t-1+r, y1-0.38), color='tab:red', lw=2.0)
+                arrow(ax, (t-r, y2-0.38), (t-1+r, y2-0.38), color='tab:red', lw=2.0)
+            # spatial: exact backward through layers at every step (red ↓)
+            for t in range(T):
+                arrow(ax, (t+0.38, y2-r), (t+0.38, y1+r), color='tab:red', lw=2.0)
+            ax.text((T-1)/2, -0.65,
+                    'Temporal: exact backward at each layer (red ←)\n'
+                    'Spatial: exact backward through layers (red ↓)',
+                    ha='center', fontsize=8, color='tab:red')
+
+        elif method == 'eprop':
+            # temporal: forward eligibility trace at each layer (blue →, fading)
+            for t in range(T - 1):
+                fade = max(0.25, 0.90 - t * 0.15)
+                lw_f = 1.2 + t * 0.3
+                ax.annotate('', xy=(t+1-r, y1+0.42), xytext=(t+r, y1+0.42),
+                            arrowprops=dict(arrowstyle='->', color='tab:blue',
+                                            lw=lw_f, alpha=fade))
+                ax.annotate('', xy=(t+1-r, y2+0.42), xytext=(t+r, y2+0.42),
+                            arrowprops=dict(arrowstyle='->', color='tab:blue',
+                                            lw=lw_f, alpha=fade))
+                ax.text(t+0.5, y1+0.63, r'$W^l[i,i]$', ha='center',
+                        fontsize=5, color='tab:blue')
+                ax.text(t+0.5, y2+0.63, r'$W^l[i,i]$', ha='center',
+                        fontsize=5, color='tab:blue')
+            # spatial: exact feedforward Jacobian at every step (green ↓)
+            for t in range(T):
+                arrow(ax, (t+0.38, y2-r), (t+0.38, y1+r), color='tab:green', lw=2.0)
+            ax.text((T-1)/2, -0.65,
+                    r'Temporal: diagonal carry $W^l[i,i]$ (blue →, approximate)' + '\n'
+                    r'Spatial: exact Jacobian $J_{ff}$ (green ↓)',
+                    ha='center', fontsize=8, color='#222222')
+
+        else:  # d=0
+            # temporal: no carry — instantaneous stubs (orange ↓, one per node)
+            for t in range(T):
+                ax.annotate('', xy=(t, y1+0.36), xytext=(t, y1+0.58),
+                            arrowprops=dict(arrowstyle='->', color='tab:orange', lw=1.5))
+                ax.annotate('', xy=(t, y2+0.36), xytext=(t, y2+0.58),
+                            arrowprops=dict(arrowstyle='->', color='tab:orange', lw=1.5))
+            # spatial: exact feedforward Jacobian at every step (green ↓)
+            for t in range(T):
+                arrow(ax, (t+0.38, y2-r), (t+0.38, y1+r), color='tab:green', lw=2.0)
+            ax.text((T-1)/2, -0.65,
+                    'Temporal: no carry — instantaneous only (orange ↓)\n'
+                    r'Spatial: exact Jacobian $J_{ff}$ (green ↓)',
+                    ha='center', fontsize=8, color='#222222')
+
+    fig.suptitle(
+        'Credit assignment in a 2-layer deep RNN: BPTT vs deep e-prop vs d=0',
+        fontsize=12, fontweight='bold')
+    fig.tight_layout()
+    return fig
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
     figs = [
-        (fig_single_layer(),           'single_layer_rnn'),
-        (fig_deep_rnn(L=3),            'deep_rnn_3layer'),
-        (fig_eprop_trace(),            'eprop_trace_timeline'),
-        (fig_deep_eprop_propagation(), 'deep_eprop_propagation'),
-        (fig_store_and_recall(),       'store_and_recall_task'),
-        (fig_credit_assignment(),      'credit_assignment_paths'),
+        (fig_single_layer(),                'single_layer_rnn'),
+        (fig_deep_rnn(L=3),                 'deep_rnn_3layer'),
+        (fig_eprop_trace(),                 'eprop_trace_timeline'),
+        (fig_deep_eprop_propagation(),      'deep_eprop_propagation'),
+        (fig_store_and_recall(),            'store_and_recall_task'),
+        (fig_credit_assignment(),           'credit_assignment_paths'),
+        (fig_deep_credit_assignment(),      'deep_credit_assignment_paths'),
     ]
     for fig, name in figs:
         save(fig, name)

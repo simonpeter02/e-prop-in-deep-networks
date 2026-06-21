@@ -362,6 +362,85 @@ def test_leaky_rnn_eprop_wedge(
     return True
 
 
+# ── Test 6: L=1 leaky deep e-prop == single-layer leaky e-prop ───────────────
+
+def test_depth1_leaky_deep_eprop_matches_single(n_seeds: int = 5) -> bool:
+    """For L=1 with a leaky DeepRNN, deep e-prop must equal single-layer leaky
+    e-prop exactly (validates the leaky carry / α-scaling in deep_eprop)."""
+    print("Test 6: depth-1 leaky deep e-prop == single-layer leaky e-prop ...")
+
+    for seed in range(n_seeds):
+        torch.manual_seed(seed)
+        deep = DeepRNN(n_in=5, n_rec=20, n_out=2, n_layers=1, alpha=0.3)
+        sl   = LeakyRNN(n_in=5, n_rec=20, n_out=2, alpha=0.3)
+        with torch.no_grad():
+            sl.W_rec.copy_(deep.W_recs[0]); sl.W_in.copy_(deep.W_in)
+            sl.b_rec.copy_(deep.biases[0]); sl.W_out.copy_(deep.W_out)
+            sl.b_out.copy_(deep.b_out)
+
+        inp, tgt, msk = ca_batch(batch_size=16, n_cues=5, delay=10, seed=seed)
+        g_deep = compute_deep_eprop_gradients(deep, inp, tgt, msk, mse_error)
+        g_sl   = compute_eprop_leaky_gradients(sl, inp, tgt, msk, mse_error)
+        key_map = {"W_recs.0": "W_rec", "biases.0": "b_rec",
+                   "W_in": "W_in", "W_out": "W_out", "b_out": "b_out"}
+        for dk, sk in key_map.items():
+            if not torch.allclose(g_deep[dk], g_sl[sk], rtol=1e-5, atol=1e-6):
+                diff = (g_deep[dk] - g_sl[sk]).abs().max().item()
+                print(f"  FAIL seed={seed}: '{dk}' max|diff|={diff:.2e}")
+                return False
+
+    print("  PASS  (L=1 leaky deep e-prop == single-layer leaky e-prop)")
+    return True
+
+
+# ── Test 7: ablation controls act only on the cross-layer ϵ^z trace ───────────
+
+def test_ablation_controls(n_seeds: int = 4) -> bool:
+    """The two controls must:
+      - ablate_spatial  → lower-layer (layer-0) gradients are exactly zero,
+      - ablate_temporal → lower-layer gradients differ from full,
+      - BOTH            → upper-layer (top) gradients identical to full
+                          (the controls touch only the lower-layer credit path).
+    """
+    print("Test 7: ablation controls act only on ϵ^z (lower-layer credit) ...")
+
+    lower = ["W_in", "W_recs.0", "biases.0"]
+    upper = ["W_recs.1", "W_ffs.0", "biases.1", "W_out", "b_out"]
+
+    for seed in range(n_seeds):
+        torch.manual_seed(seed)
+        m = DeepRNN(n_in=5, n_rec=24, n_out=2, n_layers=2, alpha=[0.7, 0.1])
+        inp, tgt, msk = ca_batch(batch_size=24, n_cues=5, delay=15, seed=seed)
+
+        gf = compute_deep_eprop_gradients(m, inp, tgt, msk, mse_error, mode="full")
+        gs = compute_deep_eprop_gradients(m, inp, tgt, msk, mse_error, mode="ablate_spatial")
+        gt = compute_deep_eprop_gradients(m, inp, tgt, msk, mse_error, mode="ablate_temporal")
+
+        # spatial ablation → lower-layer grads exactly zero
+        sp_norm = sum(gs[k].norm().item() for k in lower)
+        if sp_norm > 1e-9:
+            print(f"  FAIL seed={seed}: ablate_spatial lower-grad norm={sp_norm:.2e} (expected 0)")
+            return False
+        # full lower grads must be nonzero (otherwise the test is vacuous)
+        if sum(gf[k].norm().item() for k in lower) < 1e-6:
+            print(f"  FAIL seed={seed}: full lower-grad norm ≈ 0")
+            return False
+        # temporal ablation → lower grads differ from full
+        diff_t = max((gt[k] - gf[k]).abs().max().item() for k in lower)
+        if diff_t < 1e-9:
+            print(f"  FAIL seed={seed}: ablate_temporal did not change lower grads")
+            return False
+        # both controls → upper-layer grads identical to full
+        for g, nm in [(gs, "spatial"), (gt, "temporal")]:
+            up_diff = max((g[k] - gf[k]).abs().max().item() for k in upper)
+            if up_diff > 1e-9:
+                print(f"  FAIL seed={seed}: ablate_{nm} changed upper grads (diff={up_diff:.2e})")
+                return False
+
+    print("  PASS  (spatial→lower grads=0; temporal→lower changed; upper grads untouched)")
+    return True
+
+
 # ── Cue-accumulation task unit checks ────────────────────────────────────────
 
 def test_cue_accumulation_task() -> bool:
@@ -417,6 +496,10 @@ def main():
     results["4: vanilla≈d0"] = test_vanilla_rnn_eprop_approx_d0()
     print()
     results["5: leaky wedge"] = test_leaky_rnn_eprop_wedge()
+    print()
+    results["6: L=1 leaky eq"] = test_depth1_leaky_deep_eprop_matches_single()
+    print()
+    results["7: ablations"]   = test_ablation_controls()
     print()
 
     print("=" * 60)

@@ -1,32 +1,60 @@
 """
-Multi-layer vanilla tanh RNN.
+Multi-layer (optionally leaky-integrator) tanh RNN.
 
-Architecture for L layers:
-  h^1_t = tanh(W_rec^1 @ h^1_{t-1} + W_in  @ x_t   + b^1)
-  h^l_t = tanh(W_rec^l @ h^l_{t-1} + W_ff^l @ h^{l-1}_t + b^l)   l = 2,...,L
+Architecture for L layers (per-layer integration rate α; α=1 ⇒ vanilla tanh):
+  a^1_t = W_rec^1 @ h^1_{t-1} + W_in  @ x_t       + b^1
+  a^l_t = W_rec^l @ h^l_{t-1} + W_ff^l @ h^{l-1}_t + b^l        l = 2,...,L
+  h^l_t = (1-α) * h^l_{t-1} + α * tanh(a^l_t)
   o_t   = W_out @ h^L_t + b_out
+
+With α = 1 this reduces exactly to the original vanilla tanh DeepRNN
+(h^l_t = tanh(a^l_t)), so existing experiments are unaffected.
+
+A leaky α < 1 gives each unit a diagonal temporal carry (1-α) — a memory
+horizon τ ≈ 1/(1-α) — which the deep e-prop eligibility trace captures
+exactly (see learning_rules/deep_eprop.py). This is what makes evidence
+accumulation over a silent delay both solvable and a meaningful test of
+e-prop's temporal credit assignment.
 
 Parameters per layer l:
   W_rec^l : (n_rec, n_rec)
   W_in    : (n_rec, n_in)     [layer 1 only]
   W_ff^l  : (n_rec, n_rec)    [layers 2+]
   b^l     : (n_rec,)
+
+α is stored as a non-trainable scalar buffer (moves with .to(device),
+saved in state_dict, no gradient).
 """
 
 import torch
 import torch.nn as nn
 from torch import Tensor
-from typing import List, Tuple
+from typing import List, Tuple, Union
 
 
 class DeepRNN(nn.Module):
-    def __init__(self, n_in: int, n_rec: int, n_out: int, n_layers: int = 2):
+    def __init__(self, n_in: int, n_rec: int, n_out: int, n_layers: int = 2,
+                 alpha: Union[float, Tensor, "list", "tuple"] = 1.0):
         super().__init__()
         assert n_layers >= 1
         self.n_in     = n_in
         self.n_rec    = n_rec
         self.n_out    = n_out
         self.n_layers = n_layers
+
+        # Per-layer integration rate α (one scalar per layer). α=1 ⇒ vanilla
+        # tanh (backward compatible). A scalar is broadcast to every layer; a
+        # list/tuple/Tensor of length n_layers sets each layer's α separately
+        # (e.g. [0.7, 0.1] ⇒ fast lower layer + slow top integrator).
+        if isinstance(alpha, (int, float)):
+            alpha_vec = torch.full((n_layers,), float(alpha))
+        else:
+            alpha_vec = torch.as_tensor(alpha, dtype=torch.float32).flatten()
+            assert alpha_vec.numel() == n_layers, \
+                f"alpha must be scalar or length n_layers={n_layers}"
+        assert (alpha_vec > 0).all() and (alpha_vec <= 1.0).all(), "alpha in (0,1]"
+        # Stored as (n_layers,) buffer; self.alpha[l] is layer l's rate.
+        self.register_buffer("alpha", alpha_vec)
 
         # Input weights (layer 1 only)
         self.W_in = nn.Parameter(torch.randn(n_rec, n_in) / (n_in ** 0.5))
@@ -87,7 +115,8 @@ class DeepRNN(nn.Module):
             else:
                 inp = new_hs[l - 1] @ self.W_ff(l).T
             rec = hs[l] @ self.W_rec(l).T
-            h_new = torch.tanh(inp + rec + self.bias(l))
+            a = self.alpha[l]
+            h_new = (1.0 - a) * hs[l] + a * torch.tanh(inp + rec + self.bias(l))
             new_hs.append(h_new)
         o = new_hs[-1] @ self.W_out.T + self.b_out
         return new_hs, o

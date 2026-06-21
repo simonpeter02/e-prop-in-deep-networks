@@ -130,19 +130,28 @@ class EpropRule(LearningRule):
 
 
 class DeepEpropRule(LearningRule):
-    """Deep e-prop for DeepRNN (arbitrary depth)."""
+    """Deep e-prop for DeepRNN (arbitrary depth; leaky-aware via model.alpha).
+
+    mode selects the cross-layer (ϵ^z) trace variant:
+      'full'            — full deep e-prop (depth + time credit)
+      'ablate_spatial'  — ∂z/∂h = 0  → no depth credit (lower-layer grads → 0)
+      'ablate_temporal' — ∂z/∂z_{t-1} = 0  → no cross-layer temporal credit
+    """
 
     name = "deep_eprop"
 
-    def __init__(self, learning_signal_fn=None, d_zero: bool = False):
+    def __init__(self, learning_signal_fn=None, d_zero: bool = False,
+                 mode: str = "full"):
         from learning_rules.deep_eprop import mse_error
         self.lsf    = learning_signal_fn or mse_error
         self.d_zero = d_zero
+        self.mode   = mode
 
     def compute_gradients(self, model, inputs, targets, mask):
         from learning_rules.deep_eprop import compute_deep_eprop_gradients
         return compute_deep_eprop_gradients(
-            model, inputs, targets, mask, self.lsf, d_zero=self.d_zero
+            model, inputs, targets, mask, self.lsf,
+            d_zero=self.d_zero, mode=self.mode
         )
 
 
@@ -176,12 +185,15 @@ class BPTTRule(LearningRule):
 # ── Factory ───────────────────────────────────────────────────────────────────
 
 _RULE_MAP = {
-    "eprop":        (EpropRule,      dict(d_zero=False)),
-    "d0":           (EpropRule,      dict(d_zero=True)),
-    "deep_eprop":   (DeepEpropRule,  dict(d_zero=False)),
-    "deep_d0":      (DeepEpropRule,  dict(d_zero=True)),
-    "deep_rtrl":    (DeepRTRLRule,   {}),
-    "bptt":         (BPTTRule,       {}),
+    "eprop":                 (EpropRule,      dict(d_zero=False)),
+    "d0":                    (EpropRule,      dict(d_zero=True)),
+    "deep_eprop":            (DeepEpropRule,  dict(d_zero=False, mode="full")),
+    "deep_d0":               (DeepEpropRule,  dict(d_zero=True)),
+    # The two credit-assignment controls (act on the cross-layer ϵ^z trace):
+    "deep_ablate_spatial":   (DeepEpropRule,  dict(mode="ablate_spatial")),
+    "deep_ablate_temporal":  (DeepEpropRule,  dict(mode="ablate_temporal")),
+    "deep_rtrl":             (DeepRTRLRule,   {}),
+    "bptt":                  (BPTTRule,       {}),
 }
 
 

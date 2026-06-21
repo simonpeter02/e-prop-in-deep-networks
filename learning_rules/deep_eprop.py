@@ -48,17 +48,50 @@ def compute_deep_eprop_gradients(
     mask: Tensor,
     learning_signal_fn,
     d_zero: bool = False,
+    mode: str = "full",
 ) -> Dict[str, Tensor]:
     """
-    Deep e-prop (or d=0) gradients for an L-layer DeepRNN (L >= 1).
+    Deep e-prop (or ablations) gradients for an L-layer DeepRNN (L >= 1).
 
-    d_zero=True : drop all temporal carry terms; retain spatial cross-layer terms.
+    Supports leaky-integrator dynamics:
+        h^l_t = (1-α) h^l_{t-1} + α tanh(a^l_t)
+    via model.alpha (scalar buffer, default 1.0 ⇒ vanilla tanh).  The leaky
+    diagonal temporal carry is  c^l = (1-α) + α ψ^l W_rec^l_diag  and every
+    instantaneous derivative is scaled by the drive  α ψ^l.  At α=1 this is
+    identical to the original vanilla deep e-prop.
+
+    Controls (act on the cross-layer / hierarchical trace ϵ^z only — the
+    object that carries LOWER-layer credit up to the top, where both depth and
+    time credit live; the within-layer self-traces ϵ^h are always kept intact):
+
+      mode='full'            : ϵ^z_t = (∂z/∂h)·ϵ^h_t + (∂z/∂z_{t-1})·ϵ^z_{t-1}
+      mode='ablate_spatial'  : set ∂z/∂h = 0 ⇒ ϵ^z_t = (∂z/∂z_{t-1})·ϵ^z_{t-1}
+                               → lower-layer credit never enters the hierarchy
+                               (DEPTH credit removed; lower-layer grads → 0).
+      mode='ablate_temporal' : set ∂z/∂z_{t-1} = 0 ⇒ ϵ^z_t = (∂z/∂h)·ϵ^h_t
+                               → only same-timestep transmission of the lower
+                               trace (cross-layer TEMPORAL credit removed).
+
+    d_zero=True : legacy baseline — drop ALL temporal carry (self + cross),
+    keep only instantaneous same-timestep spatial credit.
     """
+    assert mode in ("full", "ablate_spatial", "ablate_temporal"), f"bad mode {mode}"
     L     = model.n_layers
     T, B, n_in = inputs.shape
     n     = model.n_rec
     n_out = model.n_out
     dev   = inputs.device
+    # Per-layer integration rate α_l (default 1.0 ⇒ vanilla tanh).
+    _a = getattr(model, "alpha", 1.0)
+    if isinstance(_a, Tensor) and _a.numel() == L:
+        alphas = [float(_a[l]) for l in range(L)]
+    else:
+        alphas = [float(_a)] * L
+
+    # Which terms of the cross-layer (ϵ^z) trace are active:
+    spatial_on  = (mode != "ablate_spatial")
+    # temporal carry of ϵ^z off if explicitly ablated OR under legacy d_zero
+    z_temporal_on = (mode != "ablate_temporal") and (not d_zero)
 
     # ── Detach weights ─────────────────────────────────────────────────────────
     W_recs  = [model.W_rec(l).detach() for l in range(L)]
@@ -105,36 +138,44 @@ def compute_deep_eprop_gradients(
 
         # ── Forward pass ──────────────────────────────────────────────────────
         with torch.no_grad():
-            new_hs = []
+            new_hs    = []
+            tanh_vals = []
             for l in range(L):
                 inp   = (x_t @ W_in_.T if l == 0 else new_hs[l - 1] @ W_ffs[l - 1].T)
-                h_new = torch.tanh(inp + hs_prev[l] @ W_recs[l].T + biases[l])
+                tv    = torch.tanh(inp + hs_prev[l] @ W_recs[l].T + biases[l])
+                h_new = (1.0 - alphas[l]) * hs_prev[l] + alphas[l] * tv
+                tanh_vals.append(tv)
                 new_hs.append(h_new)
             hs = new_hs
             o  = hs[-1] @ W_out_.T + model.b_out
 
-        psis    = [1.0 - hs[l] ** 2 for l in range(L)]           # (B, n) each
-        carries = [psis[l] * w_diags[l] for l in range(L)]        # (B, n) each
+        # psi_raw = tanh'(a) = 1 - tanh(a)^2  (NOT 1-h^2: h is the leaky state)
+        psi_raw = [1.0 - tanh_vals[l] ** 2 for l in range(L)]     # (B, n) each
+        # Instantaneous drive  α_l ψ_raw  scales every immediate derivative term.
+        drive   = [alphas[l] * psi_raw[l] for l in range(L)]      # (B, n) each
+        # Diagonal temporal carry  c^l = (1-α_l) + α_l ψ_raw W_rec_diag.
+        carries = [(1.0 - alphas[l]) + drive[l] * w_diags[l] for l in range(L)]
 
-        # ── Update self-traces (bottom to top) ────────────────────────────────
+        # ── Update self-traces ϵ^h (bottom to top) ────────────────────────────
+        # Always full e-prop (the controls act only on the cross-layer ϵ^z).
         for l in range(L):
             c = carries[l]   # (B, n)
             if d_zero:
-                eps_self_rec[l] = psis[l].unsqueeze(2) * hs_prev[l].unsqueeze(1)
-                eps_self_b[l]   = psis[l]
+                eps_self_rec[l] = drive[l].unsqueeze(2) * hs_prev[l].unsqueeze(1)
+                eps_self_b[l]   = drive[l]
                 if l == 0:
-                    eps_self_in = psis[0].unsqueeze(2) * x_t.unsqueeze(1)
+                    eps_self_in = drive[0].unsqueeze(2) * x_t.unsqueeze(1)
                 else:
-                    eps_self_ff[l] = psis[l].unsqueeze(2) * hs[l - 1].unsqueeze(1)
+                    eps_self_ff[l] = drive[l].unsqueeze(2) * hs[l - 1].unsqueeze(1)
             else:
-                eps_self_rec[l] = (psis[l].unsqueeze(2) * hs_prev[l].unsqueeze(1)
+                eps_self_rec[l] = (drive[l].unsqueeze(2) * hs_prev[l].unsqueeze(1)
                                    + c.unsqueeze(2) * eps_self_rec[l])
-                eps_self_b[l]   = psis[l] + c * eps_self_b[l]
+                eps_self_b[l]   = drive[l] + c * eps_self_b[l]
                 if l == 0:
-                    eps_self_in = (psis[0].unsqueeze(2) * x_t.unsqueeze(1)
+                    eps_self_in = (drive[0].unsqueeze(2) * x_t.unsqueeze(1)
                                    + c.unsqueeze(2) * eps_self_in)
                 else:
-                    eps_self_ff[l] = (psis[l].unsqueeze(2) * hs[l - 1].unsqueeze(1)
+                    eps_self_ff[l] = (drive[l].unsqueeze(2) * hs[l - 1].unsqueeze(1)
                                       + c.unsqueeze(2) * eps_self_ff[l])
 
         # ── Update cross-layer traces ──────────────────────────────────────────
@@ -142,13 +183,14 @@ def compute_deep_eprop_gradients(
         # This ensures eps_cross[l_top-1][l_src] is already updated before
         # we use it in the non-adjacent (l_src < l_top-1) case.
         for l_top in range(1, L):
-            J_ff = psis[l_top].unsqueeze(2) * W_ffs[l_top - 1]   # (B, n, n)
+            # Spatial Jacobian ∂h^{l_top}/∂h^{l_top-1} = α ψ_raw ⊙ W_ff = drive ⊙ W_ff
+            J_ff = drive[l_top].unsqueeze(2) * W_ffs[l_top - 1]   # (B, n, n)
             c    = carries[l_top]                                   # (B, n)
 
             for l_src in range(l_top):
                 adjacent = (l_src == l_top - 1)
 
-                # -- Spatial terms -----------------------------------------
+                # -- Spatial term  (∂z/∂h)·ϵ^h  ----------------------------
                 if adjacent:
                     # Path of length 1: J_ff @ self-trace of l_src
                     sp_rec = torch.einsum('bpq,bqj->bpqj', J_ff, eps_self_rec[l_src])
@@ -166,15 +208,18 @@ def compute_deep_eprop_gradients(
                     if l_src > 0:
                         sp_ff = torch.einsum('bpk,bkij->bpij', J_ff, eps_cross_ff[l_top - 1][l_src])
 
-                # -- Temporal carry + spatial ---------------------------------
-                if d_zero:
-                    eps_cross_rec[l_top][l_src] = sp_rec
-                    eps_cross_b[l_top][l_src]   = sp_b
+                # mode='ablate_spatial': set ∂z/∂h = 0 → drop the spatial seed
+                if not spatial_on:
+                    sp_rec = torch.zeros_like(sp_rec)
+                    sp_b   = torch.zeros_like(sp_b)
                     if l_src == 0:
-                        eps_cross_in[l_top] = sp_in
+                        sp_in = torch.zeros_like(sp_in)
                     if l_src > 0:
-                        eps_cross_ff[l_top][l_src] = sp_ff
-                else:
+                        sp_ff = torch.zeros_like(sp_ff)
+
+                # -- Temporal carry (∂z/∂z_{t-1})·ϵ^z_{t-1}  + spatial ------
+                # z_temporal_on=False under mode='ablate_temporal' or legacy d_zero.
+                if z_temporal_on:
                     eps_cross_rec[l_top][l_src] = (
                         c[:, :, None, None] * eps_cross_rec[l_top][l_src] + sp_rec)
                     eps_cross_b[l_top][l_src] = (
@@ -185,6 +230,13 @@ def compute_deep_eprop_gradients(
                     if l_src > 0:
                         eps_cross_ff[l_top][l_src] = (
                             c[:, :, None, None] * eps_cross_ff[l_top][l_src] + sp_ff)
+                else:
+                    eps_cross_rec[l_top][l_src] = sp_rec
+                    eps_cross_b[l_top][l_src]   = sp_b
+                    if l_src == 0:
+                        eps_cross_in[l_top] = sp_in
+                    if l_src > 0:
+                        eps_cross_ff[l_top][l_src] = sp_ff
 
         # ── Gradient accumulation ──────────────────────────────────────────────
         if mask[t].any():

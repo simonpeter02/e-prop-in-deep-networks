@@ -7,6 +7,53 @@ Bug fixes are flagged with **[BUG FIX]**.
 
 ---
 
+## [2026-06-21] Time-and-depth credit assignment
+
+Main result: deep e-prop assigns credit across **time and depth simultaneously**.
+
+### New / changed
+
+**[MATH CHANGE] `models/deep_rnn.py` — leaky integration**
+`DeepRNN` gains a per-layer integration rate `alpha` (scalar or length-`n_layers`),
+stored as a non-trainable buffer. Step becomes
+`h^l_t = (1-α_l) h^l_{t-1} + α_l tanh(a^l_t)`. `alpha=1.0` (default) reproduces the
+original vanilla tanh exactly, so all prior experiments are unchanged.
+
+**[MATH CHANGE] `learning_rules/deep_eprop.py` — leaky carry + two ϵ^z controls**
+- Leaky-aware: temporal carry `c^l = (1-α_l) + α_l ψ_raw W_rec_diag`, every
+  instantaneous derivative scaled by the drive `α_l ψ_raw`, feedforward Jacobian
+  `α_l ψ_raw ⊙ W_ff`. Uses `ψ_raw = 1 - tanh(a)^2` (not `1 - h^2`). At `α=1`
+  identical to the previous vanilla deep e-prop.
+- New `mode` argument acting on the cross-layer (ϵ^z) trace only:
+  `'ablate_spatial'` (∂z/∂h=0 → removes depth credit; lower-layer grads → 0) and
+  `'ablate_temporal'` (∂z/∂z_{t-1}=0 → removes cross-layer temporal credit). The
+  within-layer self-traces ϵ^h are always kept intact.
+
+**`learning_rules/interface.py`** — new rules `deep_ablate_spatial`,
+`deep_ablate_temporal`; `DeepEpropRule` takes `mode`.
+
+**`tasks/hierarchical_cue.py`** (new) — hierarchical classify-then-count of
+mean-zero rising/falling temporal motifs. Mean-zero ⇒ a frozen/random lower layer
+(reservoir) cannot fake the feature, so lower-layer credit genuinely matters.
+
+**`experiments/deep_credit_time_depth.py`** (new) — E1 per-layer gradient cosine
+vs BPTT + cross-temporal credit share vs delay; E2 learning curves; E3 delay
+sweep. E2/E3 training parallelised across processes (deep e-prop is latency-bound
+on many small ops; multiprocessing — not threads/GPU — is the effective speedup).
+
+**`tests/sanity_checks.py`** — Test 6 (L=1 leaky deep e-prop == single-layer leaky
+e-prop, exact) and Test 7 (ablations: spatial→lower grads exactly 0, temporal→lower
+changed, upper-layer grads untouched by both). All 8 tests pass.
+
+### Results (2-layer leaky DeepRNN, α=[0.5, 0.05], n_rec=32, hierarchical task)
+- E1: full deep e-prop tracks BPTT for BOTH layers (lower cos 0.65–0.77, top
+  0.88–0.95); `ablate_temporal` lower drops to ~0.61–0.66; `ablate_spatial`
+  lower = 0; ~93–95% of lower-layer credit magnitude flows through ϵ^z.
+- E2 (D=12): BPTT = 1.00 ≥ full = 0.88 ± 0.02 > ablate_temporal = 0.75 ≈
+  ablate_spatial = 0.74.
+
+---
+
 ## [2026-06-10] Phase 1 implementation
 
 ### Bug fixes
