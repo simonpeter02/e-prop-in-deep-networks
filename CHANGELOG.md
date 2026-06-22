@@ -45,6 +45,18 @@ on many small ops; multiprocessing — not threads/GPU — is the effective spee
 e-prop, exact) and Test 7 (ablations: spatial→lower grads exactly 0, temporal→lower
 changed, upper-layer grads untouched by both). All 8 tests pass.
 
+### Beef-up (same day)
+- More seeds: gradient cosine 12→16, learning curves 3→6.
+- Uncertainty bands switched from std to **SEM** (uncertainty of the mean) everywhere
+  (E1 cosine curves now have bands; E2/E3 too) → tighter, statistically meaningful.
+- New **credit summary** figure (`e1_credit_summary` / `exp5_credit_summary`): grouped
+  bars at D=12 of lower- vs top-layer cosine for full/ablate_temporal/ablate_spatial —
+  shows spatial→lower≈0, temporal→lower degraded, top-layer identical across methods.
+- Learning curves de-noised: per-seed training data streams (seed in the batch seed) so
+  hard batches don't hit all seeds at the same step, plus larger eval (4×512).
+- Parallelism fixed: seeds run across a **spawn** process pool (fork is incompatible with
+  PyTorch autograd — it crashed); GPU runs sequentially. `DEVICE=cpu` env forces CPU.
+
 ### Results (2-layer leaky DeepRNN, α=[0.5, 0.05], n_rec=32, hierarchical task)
 - E1: full deep e-prop tracks BPTT for BOTH layers (lower cos 0.65–0.77, top
   0.88–0.95); `ablate_temporal` lower drops to ~0.61–0.66; `ablate_spatial`

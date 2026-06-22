@@ -76,11 +76,13 @@ N_CUES      = 3
 DELAY_MAIN  = 12               # delay for E1/E2
 DELAYS      = [6, 12, 20, 32]  # for E1 cosine-vs-delay
 BATCH       = 128 if DEVICE == "cuda" else 48
-LR          = 5e-2
-N_STEPS     = 1500             # training steps for E2 learning curves
+LR          = 3.5e-2           # lower than BPTT-stable 5e-2: smooths e-prop overshoot
+N_STEPS     = 2000             # training steps for E2 learning curves
 EVAL_EVERY  = 100
-N_SEEDS_COS = 12               # seeds for gradient-cosine averages (E1)
-N_SEEDS_LC  = 3                # seeds for learning curves (E2)
+N_SEEDS_COS = 16               # seeds for gradient-cosine averages (E1)
+N_SEEDS_LC  = 6                # seeds for learning curves (E2)
+EVAL_N      = 512              # samples per eval batch (×EVAL_REPS) — de-noises curves
+EVAL_REPS   = 4
 # Parallel seeds across PROCESSES (fork) on CPU — this Python-loop-heavy code is
 # GIL-bound, so threads don't help; separate processes give real multi-core
 # speedup. On GPU we run sequentially (a process pool + CUDA is unsafe, and the
@@ -114,12 +116,13 @@ def new_model(seed):
 
 
 def _map(worker, items):
-    """Map a top-level worker over items; seeds in parallel via a fork process
-    pool on CPU, sequential on GPU. Falls back to sequential on any pool error."""
+    """Map a top-level worker over items; seeds in parallel via a SPAWN process
+    pool on CPU, sequential on GPU. Spawn (not fork) because PyTorch autograd is
+    incompatible with fork. Falls back to sequential on any pool error."""
     if not USE_POOL or N_WORKERS <= 1 or len(items) <= 1:
         return [worker(x) for x in items]
     try:
-        ctx = mp.get_context("fork")
+        ctx = mp.get_context("spawn")
         with ProcessPoolExecutor(max_workers=min(N_WORKERS, len(items)), mp_context=ctx) as ex:
             return list(ex.map(worker, items))
     except Exception as e:                      # pragma: no cover
@@ -144,9 +147,9 @@ def relmag(gf, gt, keys):
     return (a - b).norm().item() / (a.norm().item() + 1e-12)
 
 
-def evaluate(model, delay, n=256):
+def evaluate(model, delay, n=EVAL_N, reps=EVAL_REPS):
     accs = []
-    for e in range(4):
+    for e in range(reps):
         inp, tgt, msk = batch(n, delay, 90000 + e)
         with torch.no_grad():
             out, _ = model(inp)
@@ -162,7 +165,9 @@ def train_one(method, seed, delay, n_steps, record=True):
             curve.append(evaluate(m, delay))
         if s == n_steps:
             break
-        inp, tgt, msk = batch(BATCH, delay, 10000 + s)
+        # Per-seed data stream (not shared across seeds) so hard batches don't hit
+        # every seed at the same step → seed-averaged curves are smooth.
+        inp, tgt, msk = batch(BATCH, delay, 10_000 + seed * 1_000_000 + s)
         if method == "bptt":
             g = compute_bptt_gradients(m, inp, tgt, msk, _xent_loss)
         else:
@@ -172,6 +177,9 @@ def train_one(method, seed, delay, n_steps, record=True):
 
 
 # ── top-level workers (picklable for the process pool) ────────────────────────
+E1_KEYS = ["full_low", "full_up", "temp_low", "temp_up", "spat_low", "spat_up", "xtemp_share"]
+
+
 def _e1_job(args):
     d, s = args
     m = new_model(1000 + s)
@@ -179,6 +187,8 @@ def _e1_job(args):
     gb, gf, gs, gt = grads_all(m, inp, tgt, msk)
     return (cosine_sim_grads(gf, gb, LOWER), cosine_sim_grads(gf, gb, UPPER),
             cosine_sim_grads(gt, gb, LOWER), cosine_sim_grads(gt, gb, UPPER),
+            cosine_sim_grads(gs, gb, LOWER),   # nan: ablate_spatial zeros lower grads
+            cosine_sim_grads(gs, gb, UPPER),   # == full top (controls don't touch top)
             relmag(gf, gt, LOWER))
 
 
@@ -194,42 +204,93 @@ def _e3_job(args):
 
 
 # ───────────────── E1: per-layer cosine + cross-temporal share vs delay ────────
+def _stats(res):
+    """Per-series mean and standard error (nan-aware) over seeds (rows).
+    All-nan columns (e.g. ablate_spatial lower cosine, which is exactly 0/undefined)
+    return nan without noisy warnings."""
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        mean = np.nanmean(res, axis=0)
+        n = np.sum(~np.isnan(res), axis=0)
+        sd = np.nanstd(res, axis=0, ddof=1)
+    sem = np.where(n > 1, sd / np.sqrt(np.maximum(n, 1)), 0.0)
+    return mean, sem
+
+
 def e1_gradient_credit():
     print(f"=== E1: per-layer gradient cosine vs BPTT (+ cross-temporal share) [{DEVICE}] ===", flush=True)
-    out = {}
+    mean, sem = {}, {}
     for d in DELAYS:
-        res = np.array(_map(_e1_job, [(d, s) for s in range(N_SEEDS_COS)]), dtype=float)
-        out[d] = dict(zip(["full_low", "full_up", "temp_low", "temp_up", "xtemp_share"],
-                          np.nanmean(res, axis=0).tolist()))
-        print(f"  D={d:3d}  full(low={out[d]['full_low']:.3f}, up={out[d]['full_up']:.3f})  "
-              f"temporal(low={out[d]['temp_low']:.3f})  spatial(low=0)  "
-              f"xtemp_share={out[d]['xtemp_share']:.3f}", flush=True)
+        res = np.array(_map(_e1_job, [(d, s) for s in range(N_SEEDS_COS)]), dtype=float)  # (seeds, 7)
+        m, e = _stats(res)
+        mean[d] = dict(zip(E1_KEYS, m.tolist()))
+        sem[d] = dict(zip(E1_KEYS, e.tolist()))
+        print(f"  D={d:3d}  full(low={mean[d]['full_low']:.3f}±{sem[d]['full_low']:.3f}, "
+              f"up={mean[d]['full_up']:.3f})  temporal(low={mean[d]['temp_low']:.3f}±{sem[d]['temp_low']:.3f})  "
+              f"spatial(low=0)  xtemp_share={mean[d]['xtemp_share']:.3f}", flush=True)
 
-    json.dump(out, open(f"{RESULTS}/e1_gradient_credit.json", "w"), indent=2)
+    json.dump({"delays": DELAYS, "mean": mean, "sem": sem, "n_seeds": N_SEEDS_COS},
+              open(f"{RESULTS}/e1_gradient_credit.json", "w"), indent=2)
 
+    def series(stat, key):   # nan→0 (ablate_spatial lower is exactly zero)
+        return np.nan_to_num(np.array([stat[d][key] for d in DELAYS]))
+
+    # ── Figure 1: per-layer cosine vs delay, with stderr bands ────────────────
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
     ax = axes[0]
-    ax.plot(DELAYS, [out[d]["full_low"] for d in DELAYS], "o-", color="C0", label="full · lower layer")
-    ax.plot(DELAYS, [out[d]["full_up"] for d in DELAYS], "o--", color="C0", label="full · top layer")
-    ax.plot(DELAYS, [out[d]["temp_low"] for d in DELAYS], "s-", color="C3", label="ablate_temporal · lower")
-    ax.plot(DELAYS, [0]*len(DELAYS), "x", color="C1", label="ablate_spatial · lower (=0)")
+    for key, color, ls, lab in [
+            ("full_low", "C0", "-",  "full · lower layer"),
+            ("full_up",  "C0", "--", "full · top layer"),
+            ("temp_low", "C3", "-",  "ablate_temporal · lower"),
+            ("spat_low", "C1", "-",  "ablate_spatial · lower (=0)")]:
+        mu, er = series(mean, key), series(sem, key)
+        ax.plot(DELAYS, mu, marker="o", color=color, ls=ls, label=lab)
+        ax.fill_between(DELAYS, mu - er, mu + er, color=color, alpha=0.15)
     ax.axhline(0, color="gray", ls=":")
     ax.set_xlabel("delay D"); ax.set_ylabel("gradient cosine vs BPTT")
     ax.set_title("Per-layer credit alignment"); ax.legend(fontsize=8); ax.set_ylim(-0.1, 1.05)
 
     ax = axes[1]
-    ax.plot(DELAYS, [out[d]["xtemp_share"] for d in DELAYS], "o-", color="C2")
+    mu, er = series(mean, "xtemp_share"), series(sem, "xtemp_share")
+    ax.plot(DELAYS, mu, "o-", color="C2")
+    ax.fill_between(DELAYS, mu - er, mu + er, color="C2", alpha=0.15)
     ax.set_xlabel("delay D")
     ax.set_ylabel("‖full − ablate_temporal‖ / ‖full‖  (lower layer)")
     ax.set_title("Share of lower-layer credit carried by\ncross-layer temporal trace ϵ^z")
     ax.set_ylim(0, 1.05)
-    fig.suptitle("E1 — deep e-prop assigns credit across depth AND time")
+    fig.suptitle(f"E1 — deep e-prop assigns credit across depth AND time (n={N_SEEDS_COS} seeds, ±SEM)")
     fig.tight_layout()
     for ext in ("pdf", "svg"):
         fig.savefig(f"{RESULTS}/e1_gradient_credit.{ext}")
     plt.close(fig)
-    print(f"  saved {RESULTS}/e1_gradient_credit.[pdf,svg,json]", flush=True)
-    return out
+
+    # ── Figure 2: summary bars at the main delay (reuses the same cosines) ─────
+    dbar = DELAY_MAIN if DELAY_MAIN in mean else DELAYS[len(DELAYS) // 2]
+    methods = [("full", "C0"), ("ablate_temporal", "C3"), ("ablate_spatial", "C1")]
+    key_for = {("full", "low"): "full_low", ("full", "top"): "full_up",
+               ("ablate_temporal", "low"): "temp_low", ("ablate_temporal", "top"): "temp_up",
+               ("ablate_spatial", "low"): "spat_low", ("ablate_spatial", "top"): "spat_up"}
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    x = np.arange(2)                      # 0=lower layer, 1=top layer
+    w = 0.26
+    for i, (meth, color) in enumerate(methods):
+        mus = [np.nan_to_num(mean[dbar][key_for[(meth, lyr)]]) for lyr in ("low", "top")]
+        ers = [np.nan_to_num(sem[dbar][key_for[(meth, lyr)]]) for lyr in ("low", "top")]
+        ax.bar(x + (i - 1) * w, mus, w, yerr=ers, capsize=4, color=color,
+               label=meth.replace("ablate_", "ablate "))
+    ax.set_xticks(x); ax.set_xticklabels(["lower layer", "top layer"])
+    ax.set_ylabel("gradient cosine vs BPTT"); ax.set_ylim(-0.05, 1.05)
+    ax.axhline(0, color="gray", ls=":")
+    ax.set_title(f"Where each control removes credit (D={dbar}, n={N_SEEDS_COS} seeds, ±SEM)\n"
+                 f"spatial→lower≈0 · temporal→lower degraded · top layer untouched")
+    ax.legend(fontsize=8)
+    fig.tight_layout()
+    for ext in ("pdf", "svg"):
+        fig.savefig(f"{RESULTS}/e1_credit_summary.{ext}")
+    plt.close(fig)
+    print(f"  saved {RESULTS}/e1_gradient_credit.[pdf,svg,json] + e1_credit_summary.[pdf,svg]", flush=True)
+    return mean
 
 
 # ───────────────── E2: learning curves (seeds in parallel) ─────────────────────
@@ -245,19 +306,22 @@ def e2_learning_curves():
     curves = {}
     for method, label in METHODS_LC:
         mat = np.array([acc[method][s] for s in range(N_SEEDS_LC)])
-        curves[method] = dict(mean=mat.mean(0).tolist(), std=mat.std(0).tolist())
-        print(f"  {label:22s} final={mat.mean(0)[-1]:.3f}±{mat.std(0)[-1]:.3f}", flush=True)
+        n = mat.shape[0]
+        sem = ((mat.std(0, ddof=1) / np.sqrt(n)) if n > 1 else np.zeros(mat.shape[1])).tolist()
+        curves[method] = dict(mean=mat.mean(0).tolist(), std=mat.std(0).tolist(), sem=sem)
+        print(f"  {label:22s} final={mat.mean(0)[-1]:.3f}±{sem[-1]:.3f} (SEM)", flush=True)
     print(f"  [{time.time()-t0:.0f}s]", flush=True)
 
-    json.dump(dict(steps=steps, curves=curves), open(f"{RESULTS}/e2_learning_curves.json", "w"), indent=2)
+    json.dump(dict(steps=steps, curves=curves, n_seeds=N_SEEDS_LC),
+              open(f"{RESULTS}/e2_learning_curves.json", "w"), indent=2)
     fig, ax = plt.subplots(figsize=(7, 4.8))
     for method, label in METHODS_LC:
-        mu = np.array(curves[method]["mean"]); sd = np.array(curves[method]["std"])
+        mu = np.array(curves[method]["mean"]); er = np.array(curves[method]["sem"])
         ax.plot(steps, mu, "-o", ms=3, color=COLORS[method], label=label)
-        ax.fill_between(steps, mu - sd, mu + sd, color=COLORS[method], alpha=0.15)
+        ax.fill_between(steps, mu - er, mu + er, color=COLORS[method], alpha=0.15)
     ax.axhline(0.5, color="gray", ls="--", label="chance")
     ax.set_xlabel("training step"); ax.set_ylabel("accuracy")
-    ax.set_title(f"Learning the hierarchical task (D={DELAY_MAIN}, α={ALPHA})")
+    ax.set_title(f"Learning the hierarchical task (D={DELAY_MAIN}, α={ALPHA}, n={N_SEEDS_LC} seeds, ±SEM)")
     ax.legend(fontsize=8); ax.set_ylim(0.45, 1.02)
     fig.tight_layout()
     for ext in ("pdf", "svg"):
@@ -270,14 +334,18 @@ def e2_learning_curves():
 # ───────────────── E3: final accuracy vs delay (seeds in parallel) ─────────────
 def e3_delay_sweep():
     print(f"=== E3: final accuracy vs delay ({DEVICE}, pool={USE_POOL} x{N_WORKERS}) ===", flush=True)
-    jobs = [(meth, s, d) for meth, _ in METHODS_LC for s in range(E3_SEEDS) for d in E3_DELAYS]
     t0 = time.time()
-    out = _map(_e3_job, jobs)
     bucket = {(meth, d): [] for meth, _ in METHODS_LC for d in E3_DELAYS}
-    for method, d, a in out:
-        bucket[(method, d)].append(a)
-    res = {meth: {d: [float(np.mean(bucket[(meth, d)])), float(np.std(bucket[(meth, d)]))]
-                  for d in E3_DELAYS} for meth, _ in METHODS_LC}
+    # One _map per delay (smaller batches) — robust with the spawn pool.
+    for d in E3_DELAYS:
+        jobs = [(meth, s, d) for meth, _ in METHODS_LC for s in range(E3_SEEDS)]
+        for method, dd, a in _map(_e3_job, jobs):
+            bucket[(method, dd)].append(a)
+        print(f"  D={d:3d} done [{time.time()-t0:.0f}s]", flush=True)
+    def _ms(v):
+        v = np.array(v, dtype=float)
+        return [float(v.mean()), float(v.std(ddof=1) / np.sqrt(len(v)))]   # mean, SEM
+    res = {meth: {d: _ms(bucket[(meth, d)]) for d in E3_DELAYS} for meth, _ in METHODS_LC}
     for d in E3_DELAYS:
         print(f"  D={d:3d}  " + "  ".join(
             f"{lab.split()[0]}={res[meth][d][0]:.3f}" for meth, lab in METHODS_LC), flush=True)
