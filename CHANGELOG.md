@@ -57,6 +57,22 @@ changed, upper-layer grads untouched by both). All 8 tests pass.
 - Parallelism fixed: seeds run across a **spawn** process pool (fork is incompatible with
   PyTorch autograd — it crashed); GPU runs sequentially. `DEVICE=cpu` env forces CPU.
 
+### Significance testing + power analysis (same day)
+- New `experiments/stats.py`: exact paired **sign-flip permutation test** (headline),
+  paired t-test (95% CI + Cohen's dz), Wilcoxon (robustness), Holm-Bonferroni, and a
+  simulation-based `power_curve`. Design is **paired** across seeds (each seed = same init
+  + same data stream; only the gradient rule differs). Sanity Test 8 checks the permutation
+  test vs brute-force enumeration — all 9 sanity tests pass.
+- Driver: `collect_final_accs` (per-seed final accuracy on a 4096-trial held-out set),
+  `power_analysis` (pilot → effect sizes → power curve → n\*), `e2_significance` (fresh
+  disjoint seeds → tests → annotated bar figure). Entry points `… power` and `… stats N`.
+- **Power analysis:** pilot (n=10) effect sizes dz ≈ +2.9 (vs ablate_temporal), +2.5
+  (vs ablate_spatial), −3.6 (vs BPTT); the simulation power curve is a step function
+  (0 for n≤7, 1 for n≥8) — floor-limited by the permutation test's 2/2ⁿ minimum under Holm,
+  not by noise — so **n\* = 8**.
+- Notebook: Exp 5 seeds set to 8; new **5.3 Significance** cell runs the paired tests + Holm
+  and plots a final-accuracy bar chart with significance brackets.
+
 ### Results (2-layer leaky DeepRNN, α=[0.5, 0.05], n_rec=32, hierarchical task)
 - E1: full deep e-prop tracks BPTT for BOTH layers (lower cos 0.65–0.77, top
   0.88–0.95); `ablate_temporal` lower drops to ~0.61–0.66; `ablate_spatial`

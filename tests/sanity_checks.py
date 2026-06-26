@@ -476,6 +476,38 @@ def test_cue_accumulation_task() -> bool:
     return True
 
 
+# ── Test 8: sign-flip permutation test == brute force ────────────────────────
+
+def test_perm_test_matches_bruteforce() -> bool:
+    """exact sign-flip permutation p == brute-force enumeration; floor = 2/2^n;
+    agrees in direction with the paired t-test."""
+    print("Test 8: sign-flip permutation test correctness ...")
+    from itertools import product
+    from experiments.stats import sign_flip_perm_test, paired_report
+
+    rng = __import__("numpy").random.default_rng(7)
+    import numpy as _np
+    for n in [5, 6, 8]:
+        d = rng.normal(0.15, 0.3, size=n)
+        means = [_np.mean(_np.array(s) * d) for s in product([1, -1], repeat=n)]
+        p_brute = float(_np.mean(_np.abs(means) >= abs(d.mean()) - 1e-12))
+        p_fn = sign_flip_perm_test(d)
+        if abs(p_brute - p_fn) > 1e-9:
+            print(f"  FAIL n={n}: brute={p_brute:.5f} fn={p_fn:.5f}")
+            return False
+    for n in [6, 8, 10]:                         # all-same-sign → floor 2/2^n
+        if abs(sign_flip_perm_test(_np.ones(n)) - 2 / 2 ** n) > 1e-9:
+            print(f"  FAIL floor at n={n}")
+            return False
+    a = _np.array([.84, .86, .85, .83, .87, .85]); b = _np.array([.67, .70, .66, .69, .68, .66])
+    r = paired_report(a, b)
+    if not (r["p_perm"] < 0.05 and r["p_t"] < 0.05 and r["mean_diff"] > 0):
+        print(f"  FAIL direction agreement: {r}")
+        return False
+    print("  PASS  (exact == brute force; floor = 2/2^n; agrees with paired t)")
+    return True
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
@@ -500,6 +532,8 @@ def main():
     results["6: L=1 leaky eq"] = test_depth1_leaky_deep_eprop_matches_single()
     print()
     results["7: ablations"]   = test_ablation_controls()
+    print()
+    results["8: perm test"]   = test_perm_test_matches_bruteforce()
     print()
 
     print("=" * 60)

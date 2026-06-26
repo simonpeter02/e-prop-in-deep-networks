@@ -368,9 +368,136 @@ def e3_delay_sweep():
     return res
 
 
+# ───────────────── Significance testing + power analysis ──────────────────────
+STATS_EVAL_N    = 2048      # held-out trials per eval batch for the per-seed endpoint
+STATS_EVAL_REPS = 2         # → 4096 held-out trials per seed (precise final accuracy)
+METHODS_ALL     = ["full", "ablate_temporal", "ablate_spatial", "bptt"]
+STATS_COMPS     = [("ablate_temporal", "full vs ablate_temporal"),
+                   ("ablate_spatial",  "full vs ablate_spatial"),
+                   ("bptt",            "full vs BPTT")]
+
+
+def _final_acc_job(args):
+    """Train one (method, seed) to completion; return final accuracy on a large
+    fixed held-out test set (the per-seed endpoint for the paired tests)."""
+    method, seed, delay = args
+    m, _ = train_one(method, seed, delay, N_STEPS, record=False)
+    return (method, seed, evaluate(m, delay, n=STATS_EVAL_N, reps=STATS_EVAL_REPS))
+
+
+def collect_final_accs(seeds, delay=DELAY_MAIN):
+    # Chunk per method (smaller _map calls) — the spawn pool stalls on very large
+    # single batches, so keep each _map to ~len(seeds) jobs (same fix as E3).
+    acc = {meth: {} for meth in METHODS_ALL}
+    for meth in METHODS_ALL:
+        for method, seed, a in _map(_final_acc_job, [(meth, s, delay) for s in seeds]):
+            acc[method][seed] = a
+        print(f"  [{meth} done: {len(acc[meth])}/{len(seeds)} seeds]", flush=True)
+    return acc
+
+
+def power_analysis(pilot_seeds=None):
+    from experiments.stats import paired_report, power_curve, smallest_n_for_power
+    pilot_seeds = pilot_seeds if pilot_seeds is not None else list(range(10))
+    print(f"=== Power analysis: pilot {len(pilot_seeds)} seeds, D={DELAY_MAIN} [{DEVICE}] ===", flush=True)
+    acc = collect_final_accs(pilot_seeds)
+    full = np.array([acc["full"][s] for s in pilot_seeds])
+    cols = []
+    print("  pilot effect sizes (paired, full − method):", flush=True)
+    for m, label in STATS_COMPS:
+        b = np.array([acc[m][s] for s in pilot_seeds]); cols.append(full - b)
+        r = paired_report(full, b)
+        print(f"    {label:24s} meanΔ={r['mean_diff']:+.3f}  dz={r['cohen_dz']:+.2f}  perm p={r['p_perm']:.4f}", flush=True)
+    D = np.column_stack(cols)
+    ns = list(range(4, 21))
+    powers = power_curve(D, ns, alpha=0.05, n_sim=2000, n_perm=4096, seed=0)
+    nstar = smallest_n_for_power(powers, 0.90)
+    print("  power vs n (per comparison, Holm-corrected, two-sided α=0.05):", flush=True)
+    for n in ns:
+        print(f"    n={n:2d}: {[round(x, 2) for x in powers[n]]}", flush=True)
+    print(f"  → n* (≥0.90 power on all comparisons) = {nstar}", flush=True)
+
+    json.dump({"pilot_seeds": pilot_seeds, "powers": powers, "nstar": nstar,
+               "pilot_acc": {m: {int(s): acc[m][s] for s in pilot_seeds} for m in acc}},
+              open(f"{RESULTS}/e2_power_curve.json", "w"), indent=2)
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    for j, (_, label) in enumerate(STATS_COMPS):
+        ax.plot(ns, [powers[n][j] for n in ns], "-o", ms=3, label=label)
+    ax.axhline(0.9, color="gray", ls="--", label="0.90 target")
+    if nstar:
+        ax.axvline(nstar, color="k", ls=":", label=f"n* = {nstar}")
+    ax.set_xlabel("number of seeds n"); ax.set_ylabel("power (Holm, two-sided α=0.05)")
+    ax.set_title("Simulation power vs #seeds\n(headline test = paired sign-flip permutation)")
+    ax.legend(fontsize=8); ax.set_ylim(-0.02, 1.02); fig.tight_layout()
+    for ext in ("pdf", "svg"):
+        fig.savefig(f"{RESULTS}/e2_power_curve.{ext}")
+    plt.close(fig)
+    print(f"  saved {RESULTS}/e2_power_curve.[pdf,svg,json]", flush=True)
+    return nstar
+
+
+def e2_significance(nstar, seed_start=100):
+    from experiments.stats import paired_report, holm
+    seeds = list(range(seed_start, seed_start + nstar))
+    print(f"=== Significance: {nstar} fresh seeds {seeds[0]}–{seeds[-1]}, D={DELAY_MAIN} [{DEVICE}] ===", flush=True)
+    acc = collect_final_accs(seeds)
+    full = np.array([acc["full"][s] for s in seeds])
+    reports = [(label, paired_report(full, np.array([acc[m][s] for s in seeds])))
+               for m, label in STATS_COMPS]
+    padj = holm([r["p_perm"] for _, r in reports])
+
+    print(f"  {'comparison':24s} {'meanΔ':>8} {'dz':>7} {'perm p':>8} {'Holm p':>8}  sig", flush=True)
+    rows = []
+    for (label, r), pa in zip(reports, padj):
+        sig = "***" if pa < 0.001 else "**" if pa < 0.01 else "*" if pa < 0.05 else "ns"
+        print(f"  {label:24s} {r['mean_diff']:+8.3f} {r['cohen_dz']:+7.2f} "
+              f"{r['p_perm']:8.4f} {pa:8.4f}  {sig}", flush=True)
+        rows.append({"comparison": label, **r, "p_holm": float(pa), "sig": sig})
+
+    means = {m: float(np.mean([acc[m][s] for s in seeds])) for m in METHODS_ALL}
+    sems = {m: float(np.std([acc[m][s] for s in seeds], ddof=1) / np.sqrt(nstar)) for m in METHODS_ALL}
+    json.dump({"seeds": seeds, "n": nstar, "final_acc_mean": means, "final_acc_sem": sems,
+               "per_seed": {m: {int(s): acc[m][s] for s in seeds} for m in METHODS_ALL},
+               "comparisons": rows},
+              open(f"{RESULTS}/e2_significance.json", "w"), indent=2)
+
+    # Final-accuracy bar chart with SEM + significance brackets (full vs controls).
+    order = ["bptt", "full", "ablate_temporal", "ablate_spatial"]
+    short = {"bptt": "BPTT", "full": "full", "ablate_temporal": "ablate\ntemporal",
+             "ablate_spatial": "ablate\nspatial"}
+    fig, ax = plt.subplots(figsize=(7, 4.8))
+    xs = np.arange(len(order))
+    ax.bar(xs, [means[m] for m in order], yerr=[sems[m] for m in order], capsize=4,
+           color=[COLORS[m] for m in order])
+    ax.set_xticks(xs); ax.set_xticklabels([short[m] for m in order])
+    ax.set_ylabel("final accuracy (held-out)"); ax.axhline(0.5, color="gray", ls="--")
+    ax.set_ylim(0.45, 1.22)
+    ax.set_title(f"Final accuracy with significance (n={nstar} seeds, ±SEM)\n"
+                 f"brackets: full vs control — Holm-corrected sign-flip permutation")
+    fx = order.index("full")
+    y0 = max(means.values()) + 0.05
+    for k, (m, _, pa) in enumerate([("ablate_temporal", reports[0][1], padj[0]),
+                                    ("ablate_spatial", reports[1][1], padj[1])]):
+        x2 = order.index(m); y = y0 + k * 0.06
+        ax.plot([fx, fx, x2, x2], [y - 0.01, y, y, y - 0.01], color="k", lw=1)
+        s = "***" if pa < 0.001 else "**" if pa < 0.01 else "*" if pa < 0.05 else "ns"
+        ax.text((fx + x2) / 2, y + 0.004, s, ha="center", va="bottom", fontsize=11)
+    fig.tight_layout()
+    for ext in ("pdf", "svg"):
+        fig.savefig(f"{RESULTS}/e2_significance.{ext}")
+    plt.close(fig)
+    print(f"  saved {RESULTS}/e2_significance.[pdf,svg,json]", flush=True)
+    return rows
+
+
 if __name__ == "__main__":
     torch.manual_seed(SEED); np.random.seed(SEED)
     which = sys.argv[1] if len(sys.argv) > 1 else "all"
+    if which == "power":
+        power_analysis()
+    if which == "stats":
+        nstar = int(sys.argv[2]) if len(sys.argv) > 2 else 10
+        e2_significance(nstar)
     if which in ("all", "e1"):
         e1_gradient_credit()
     if which in ("all", "e2"):
