@@ -1,0 +1,56 @@
+% Deep e-prop in a deep leaky RNN: the forward eligibility-trace recursion.
+%
+% Style follows Eq. (10) of Millidge, "Generalizing E-prop to Deep Networks"
+% (arXiv:2512.24506): a single trace recursion with a recurrent (in-time) term
+% plus a source term K that switches between a hierarchical (in-depth) component
+% for non-terminal layers and the explicit input-weight partial for the terminal
+% (input) layer. Here it is specialised to our deep leaky-integrator tanh RNN
+%   h^l_t = (1-alpha) h^l_{t-1} + alpha * tanh(a^l_t),
+% so the leak (1-alpha) appears directly in the temporal Jacobian.
+%
+% Compile:  pdflatex deep_eprop_recursion.tex          (-> PDF)
+%           latex deep_eprop_recursion.tex && dvisvgm  (-> SVG)
+\documentclass[border=16pt,varwidth=174mm]{standalone}
+\usepackage{amsmath,amssymb}
+\usepackage{xcolor}
+
+\definecolor{note}{gray}{0.45}
+\newcommand{\note}[1]{{\color{note}\footnotesize #1}}
+\newcommand{\Wrec}{W^{\,l}_{\mathrm{rec}}}
+\newcommand{\Wff}{W^{\,l}_{\mathrm{ff}}}
+\newcommand{\diag}{\operatorname{diag}}
+
+\begin{document}
+\begin{minipage}{165mm}
+\centering
+{\bfseries Deep e-prop in a deep leaky RNN — forward eligibility-trace recursion}\\[1.0ex]
+\note{trace $\epsilon^{l}_{t}$ per parameter group, propagated forward in time \emph{and} up in depth ($l=1,\dots,L$)}\\[2.4ex]
+% --- the Eq.(10)-style recursion, specialised to the leaky RNN -----------------
+$\displaystyle
+\epsilon^{\,l}_{t}
+=\underbrace{\frac{\partial h^{l}_{t}}{\partial h^{l}_{t-1}}}_{\text{recurrent (in time)}}\!\epsilon^{\,l}_{t-1}
+\;+\;
+\begin{cases}
+\dfrac{\partial h^{l}_{t}}{\partial h^{\,l-1}_{t}}\,\epsilon^{\,l-1}_{t},
+   & 1<l\le L \quad \text{\note{hierarchical (in depth)}}\\[2.8ex]
+\dfrac{\partial h^{l}_{t}}{\partial \theta},
+   & l=1 \quad\;\; \text{\note{input source (terminal)}}
+\end{cases}$\\[3.4ex]
+% --- the leaky-RNN Jacobians ---------------------------------------------------
+\note{with the leaky-integrator Jacobians\, ($\psi^{l}_{t}=\tanh'(a^{l}_{t})=1-\tanh^{2}(a^{l}_{t})$,\ \ $a^{l}_{t}=\Wrec h^{l}_{t-1}+\Wff h^{\,l-1}_{t}+b^{l}$):}\\[1.8ex]
+$\displaystyle
+\frac{\partial h^{l}_{t}}{\partial h^{l}_{t-1}}
+=\underbrace{(1-\alpha)\,I}_{\text{leak / carry}}+\,\alpha\,\diag(\psi^{l}_{t})\,\Wrec
+\qquad\qquad
+\frac{\partial h^{l}_{t}}{\partial h^{\,l-1}_{t}}
+=\alpha\,\diag(\psi^{l}_{t})\,\Wff$\\[3.4ex]
+% --- read-out: combine the top-layer trace with the loss, summed over time -----
+\note{loss gradient (loss at any / every step), via the non-recurrent learning signal on the top layer $L$:}\\[1.8ex]
+$\displaystyle
+\frac{\partial \mathcal{L}}{\partial \theta}
+=\sum_{t}\frac{\partial \mathcal{L}_{t}}{\partial y_{t}}\,
+\frac{\partial y_{t}}{\partial h^{L}_{t}}\,
+\epsilon^{\,L}_{t}$\\[2.8ex]
+\note{Here $\partial$ (rather than the total $\mathrm{d}$) is the e-prop approximation: indirect cross-time parameter interactions are dropped, so each trace stays local and online — one per synapse, per layer.}
+\end{minipage}
+\end{document}
