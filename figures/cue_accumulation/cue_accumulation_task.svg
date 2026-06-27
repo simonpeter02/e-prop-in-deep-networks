@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="360" viewBox="0 0 960 360" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="ah_7c7c7c" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,3 L0,6 Z" fill="#7c7c7c"/></marker>
+  </defs>
+  <text x="480.0" y="30.0" font-size="23" fill="#3f3f3f" text-anchor="middle" dominant-baseline="central" font-weight="bold">Cue accumulation</text>
+  <text x="480.0" y="56.0" font-size="13" fill="#666666" text-anchor="middle" dominant-baseline="central" font-weight="normal" font-style="italic">Brief left / right pulses  →  accumulate across a silent delay  →  report the majority side</text>
+  <line x1="165.0" y1="138.0" x2="667.0" y2="138.0" stroke="#7c7c7c" stroke-width="1.2"/>
+  <line x1="165.0" y1="214.0" x2="667.0" y2="214.0" stroke="#7c7c7c" stroke-width="1.2"/>
+  <text x="151.0" y="138.0" font-size="13" fill="#4C78A8" text-anchor="end" dominant-baseline="central" font-weight="bold">Left cue</text>
+  <text x="151.0" y="214.0" font-size="13" fill="#E4794A" text-anchor="end" dominant-baseline="central" font-weight="bold">Right cue</text>
+  <rect x="457.0" y="90.0" width="210.0" height="136.0" fill="#ECECEC" stroke="#cccccc" stroke-width="1.0"/>
+  <text x="562.0" y="108.0" font-size="13" fill="#888888" text-anchor="middle" dominant-baseline="central" font-weight="bold">delay</text>
+  <text x="562.0" y="126.0" font-size="11" fill="#999999" text-anchor="middle" dominant-baseline="central" font-weight="normal" font-style="italic">(silent gap)</text>
+  <polyline points="171.0,138.0 177.0,138.0 177.0,96.0 193.0,96.0 193.0,138.0 199.0,138.0" fill="none" stroke="#4C78A8" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+  <text x="185.0" y="85.0" font-size="10" fill="#4C78A8" text-anchor="middle" dominant-baseline="central" font-weight="normal">+1</text>
+  <polyline points="231.0,214.0 237.0,214.0 237.0,172.0 253.0,172.0 253.0,214.0 259.0,214.0" fill="none" stroke="#E4794A" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+  <text x="245.0" y="230.0" font-size="10" fill="#E4794A" text-anchor="middle" dominant-baseline="central" font-weight="normal">+1</text>
+  <polyline points="291.0,138.0 297.0,138.0 297.0,96.0 313.0,96.0 313.0,138.0 319.0,138.0" fill="none" stroke="#4C78A8" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+  <text x="305.0" y="85.0" font-size="10" fill="#4C78A8" text-anchor="middle" dominant-baseline="central" font-weight="normal">+1</text>
+  <polyline points="351.0,138.0 357.0,138.0 357.0,96.0 373.0,96.0 373.0,138.0 379.0,138.0" fill="none" stroke="#4C78A8" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+  <text x="365.0" y="85.0" font-size="10" fill="#4C78A8" text-anchor="middle" dominant-baseline="central" font-weight="normal">+1</text>
+  <polyline points="411.0,214.0 417.0,214.0 417.0,172.0 433.0,172.0 433.0,214.0 439.0,214.0" fill="none" stroke="#E4794A" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+  <text x="425.0" y="230.0" font-size="10" fill="#E4794A" text-anchor="middle" dominant-baseline="central" font-weight="normal">+1</text>
+  <line x1="165.0" y1="258.0" x2="673.0" y2="258.0" stroke="#7c7c7c" stroke-width="1.4" marker-end="url(#ah_7c7c7c)"/>
+  <text x="679.0" y="258.0" font-size="12" fill="#888888" text-anchor="start" dominant-baseline="central" font-weight="normal">time</text>
+  <line x1="701.0" y1="90.0" x2="701.0" y2="258.0" stroke="#336633" stroke-width="1.6" stroke-dasharray="3,3"/>
+  <text x="701.0" y="78.0" font-size="12" fill="#336633" text-anchor="middle" dominant-baseline="central" font-weight="bold">recall</text>
+  <line x1="705.0" y1="144.0" x2="727.0" y2="144.0" stroke="#7c7c7c" stroke-width="1.5" marker-end="url(#ah_7c7c7c)"/>
+  <rect x="731.0" y="112.0" width="196.0" height="64.0" fill="#FFFFFF" stroke="#3f3f3f" stroke-width="1.6" rx="10" ry="10"/>
+  <text x="829.0" y="136.0" font-size="13" fill="#3f3f3f" text-anchor="middle" dominant-baseline="central" font-weight="bold">Which side had</text>
+  <text x="829.0" y="155.0" font-size="13" fill="#3f3f3f" text-anchor="middle" dominant-baseline="central" font-weight="bold">more cues?</text>
+  <text x="829.0" y="200.0" font-size="14" fill="#336633" text-anchor="middle" dominant-baseline="central" font-weight="bold">→  LEFT wins  (3 vs 2)</text>
+</svg>
