@@ -239,27 +239,27 @@ def e1_gradient_credit():
     # ── Figure 1: per-layer cosine vs delay, with stderr bands ────────────────
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
     ax = axes[0]
-    for key, color, ls, lab in [
-            ("full_low", "C0", "-",  "full · lower layer"),
-            ("full_up",  "C0", "--", "full · top layer"),
-            ("temp_low", "C3", "-",  "ablate_temporal · lower"),
-            ("spat_low", "C1", "-",  "ablate_spatial · lower (=0)")]:
+    # ordered top-down to match the lines in the plot; full·output-adjacent gets a
+    # dotted line + hollow markers so it can't be confused with full·input-adjacent
+    for key, color, ls, lab, mfc in [
+            ("full_up",  "C0", ":",  "full · output-adjacent layer", "none"),
+            ("full_low", "C0", "-",  "full · input-adjacent layer",  "C0"),
+            ("temp_low", "C3", "-",  "ablate_temporal · input-adjacent", "C3"),
+            ("spat_low", "C1", "-",  "ablate_spatial · input-adjacent (=0)", "C1")]:
         mu, er = series(mean, key), series(sem, key)
-        ax.plot(DELAYS, mu, marker="o", color=color, ls=ls, label=lab)
+        ax.plot(DELAYS, mu, marker="o", color=color, ls=ls, label=lab, markerfacecolor=mfc)
         ax.fill_between(DELAYS, mu - er, mu + er, color=color, alpha=0.15)
     ax.axhline(0, color="gray", ls=":")
     ax.set_xlabel("delay D"); ax.set_ylabel("gradient cosine vs BPTT")
-    ax.set_title("Per-layer credit alignment"); ax.legend(fontsize=8); ax.set_ylim(-0.1, 1.05)
+    ax.legend(fontsize=8); ax.set_ylim(-0.1, 1.05)
 
     ax = axes[1]
     mu, er = series(mean, "xtemp_share"), series(sem, "xtemp_share")
     ax.plot(DELAYS, mu, "o-", color="C2")
     ax.fill_between(DELAYS, mu - er, mu + er, color="C2", alpha=0.15)
     ax.set_xlabel("delay D")
-    ax.set_ylabel("‖full − ablate_temporal‖ / ‖full‖  (lower layer)")
-    ax.set_title("Share of lower-layer credit carried by\ncross-layer temporal trace ϵ^z")
+    ax.set_ylabel("‖full − ablate_temporal‖ / ‖full‖  (input-adjacent layer)")
     ax.set_ylim(0, 1.05)
-    fig.suptitle(f"E1 — deep e-prop assigns credit across depth AND time (n={N_SEEDS_COS} seeds, ±SEM)")
     fig.tight_layout()
     for ext in ("pdf", "svg"):
         fig.savefig(f"{RESULTS}/e1_gradient_credit.{ext}")
@@ -279,11 +279,9 @@ def e1_gradient_credit():
         ers = [np.nan_to_num(sem[dbar][key_for[(meth, lyr)]]) for lyr in ("low", "top")]
         ax.bar(x + (i - 1) * w, mus, w, yerr=ers, capsize=4, color=color,
                label=meth.replace("ablate_", "ablate "))
-    ax.set_xticks(x); ax.set_xticklabels(["lower layer", "top layer"])
+    ax.set_xticks(x); ax.set_xticklabels(["input-adjacent layer", "output-adjacent layer"])
     ax.set_ylabel("gradient cosine vs BPTT"); ax.set_ylim(-0.05, 1.05)
     ax.axhline(0, color="gray", ls=":")
-    ax.set_title(f"Where each control removes credit (D={dbar}, n={N_SEEDS_COS} seeds, ±SEM)\n"
-                 f"spatial→lower≈0 · temporal→lower degraded · top layer untouched")
     ax.legend(fontsize=8)
     fig.tight_layout()
     for ext in ("pdf", "svg"):
@@ -321,7 +319,6 @@ def e2_learning_curves():
         ax.fill_between(steps, mu - er, mu + er, color=COLORS[method], alpha=0.15)
     ax.axhline(0.5, color="gray", ls="--", label="chance")
     ax.set_xlabel("training step"); ax.set_ylabel("accuracy")
-    ax.set_title(f"Learning the hierarchical task (D={DELAY_MAIN}, α={ALPHA}, n={N_SEEDS_LC} seeds, ±SEM)")
     ax.legend(fontsize=8); ax.set_ylim(0.45, 1.02)
     fig.tight_layout()
     for ext in ("pdf", "svg"):
@@ -358,7 +355,7 @@ def e3_delay_sweep():
         ax.errorbar(E3_DELAYS, mu, yerr=sd, marker="o", color=COLORS[method], label=label, capsize=3)
     ax.axhline(0.5, color="gray", ls="--", label="chance")
     ax.set_xlabel("delay D"); ax.set_ylabel("final accuracy")
-    ax.set_title("Accuracy vs delay — credit must cross more time"); ax.legend(fontsize=8)
+    ax.legend(fontsize=8)
     ax.set_ylim(0.45, 1.02)
     fig.tight_layout()
     for ext in ("pdf", "svg"):
@@ -427,7 +424,6 @@ def power_analysis(pilot_seeds=None):
     if nstar:
         ax.axvline(nstar, color="k", ls=":", label=f"n* = {nstar}")
     ax.set_xlabel("number of seeds n"); ax.set_ylabel("power (Holm, two-sided α=0.05)")
-    ax.set_title("Simulation power vs #seeds\n(headline test = paired sign-flip permutation)")
     ax.legend(fontsize=8); ax.set_ylim(-0.02, 1.02); fig.tight_layout()
     for ext in ("pdf", "svg"):
         fig.savefig(f"{RESULTS}/e2_power_curve.{ext}")
@@ -472,8 +468,6 @@ def e2_significance(nstar, seed_start=100):
     ax.set_xticks(xs); ax.set_xticklabels([short[m] for m in order])
     ax.set_ylabel("final accuracy (held-out)"); ax.axhline(0.5, color="gray", ls="--")
     ax.set_ylim(0.45, 1.22)
-    ax.set_title(f"Final accuracy with significance (n={nstar} seeds, ±SEM)\n"
-                 f"brackets: full vs control — Holm-corrected sign-flip permutation")
     fx = order.index("full")
     y0 = max(means.values()) + 0.05
     for k, (m, _, pa) in enumerate([("ablate_temporal", reports[0][1], padj[0]),
