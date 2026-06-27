@@ -137,17 +137,39 @@ def _esc(s: str) -> str:
 # PPTX backend  (native, editable shapes)
 # ════════════════════════════════════════════════════════════════════════════
 class PptxCanvas:
-    """Mirrors the SvgCanvas API but builds native python-pptx shapes."""
+    """Mirrors the SvgCanvas API but builds native python-pptx shapes.
 
-    def __init__(self, width: float, height: float):
+    The figure's (width, height) content box is *fit and centred* onto a standard
+    slide (16:9 widescreen, 960 x 540 pt = 13.333 x 7.5 in by default), so the
+    deck opens at the normal PowerPoint slide size rather than at the figure's
+    own aspect ratio.  All primitive coordinates/sizes pass through a uniform
+    scale + offset transform (_X / _Y / _S / _F).
+    """
+
+    STD_W, STD_H = 960, 540      # 16:9 widescreen — PowerPoint default
+    MARGIN = 18                  # blank border kept around the figure (pt)
+
+    def __init__(self, width: float, height: float,
+                 slide_w: float = STD_W, slide_h: float = STD_H):
         from pptx import Presentation
         from pptx.util import Pt
 
         self.W, self.H = width, height
         self.prs = Presentation()
-        self.prs.slide_width = Pt(width)
-        self.prs.slide_height = Pt(height)
+        self.prs.slide_width = Pt(slide_w)
+        self.prs.slide_height = Pt(slide_h)
         self.slide = self.prs.slides.add_slide(self.prs.slide_layouts[6])  # blank
+
+        avail_w, avail_h = slide_w - 2 * self.MARGIN, slide_h - 2 * self.MARGIN
+        self.s = min(avail_w / width, avail_h / height, 1.0)   # uniform scale
+        self.ox = (slide_w - width * self.s) / 2               # centring offset
+        self.oy = (slide_h - height * self.s) / 2
+
+    # -- coordinate transform (content pt -> slide pt) -----------------------
+    def _X(self, x): return x * self.s + self.ox
+    def _Y(self, y): return y * self.s + self.oy
+    def _S(self, v): return v * self.s          # scale a length
+    def _F(self, v): return max(1.0, v * self.s)  # scale a font size / stroke
 
     # -- primitives ----------------------------------------------------------
     def line(self, x0, y0, x1, y1, color=AXIS, width=1.6, dash=None):
@@ -155,10 +177,11 @@ class PptxCanvas:
         from pptx.util import Pt, Emu
         from pptx.dml.color import RGBColor
         conn = self.slide.shapes.add_connector(
-            MSO_CONNECTOR.STRAIGHT, Pt(x0), Pt(y0), Pt(x1), Pt(y1)
+            MSO_CONNECTOR.STRAIGHT, Pt(self._X(x0)), Pt(self._Y(y0)),
+            Pt(self._X(x1)), Pt(self._Y(y1))
         )
         conn.line.color.rgb = RGBColor(*_hex(color))
-        conn.line.width = Pt(width)
+        conn.line.width = Pt(self._F(width))
         if dash:
             _set_dash(conn.line)
 
@@ -167,10 +190,11 @@ class PptxCanvas:
         from pptx.util import Pt
         from pptx.dml.color import RGBColor
         conn = self.slide.shapes.add_connector(
-            MSO_CONNECTOR.STRAIGHT, Pt(x0), Pt(y0), Pt(x1), Pt(y1)
+            MSO_CONNECTOR.STRAIGHT, Pt(self._X(x0)), Pt(self._Y(y0)),
+            Pt(self._X(x1)), Pt(self._Y(y1))
         )
         conn.line.color.rgb = RGBColor(*_hex(color))
-        conn.line.width = Pt(width)
+        conn.line.width = Pt(self._F(width))
         _set_arrowhead(conn.line)
 
     def rect(self, x, y, w, h, fill=BOXF, edge=AXIS, width=1.4, radius=0, dash=None):
@@ -178,7 +202,9 @@ class PptxCanvas:
         from pptx.util import Pt
         from pptx.dml.color import RGBColor
         shape_type = MSO_SHAPE.ROUNDED_RECTANGLE if radius else MSO_SHAPE.RECTANGLE
-        sp = self.slide.shapes.add_shape(shape_type, Pt(x), Pt(y), Pt(w), Pt(h))
+        sp = self.slide.shapes.add_shape(
+            shape_type, Pt(self._X(x)), Pt(self._Y(y)),
+            Pt(self._S(w)), Pt(self._S(h)))
         sp.shadow.inherit = False
         if fill:
             sp.fill.solid()
@@ -187,7 +213,7 @@ class PptxCanvas:
             sp.fill.background()
         if edge:
             sp.line.color.rgb = RGBColor(*_hex(edge))
-            sp.line.width = Pt(width)
+            sp.line.width = Pt(self._F(width))
             if dash:
                 _set_dash(sp.line)
         else:
@@ -196,14 +222,17 @@ class PptxCanvas:
     def polyline(self, pts, color=LEFT, width=2.0):
         from pptx.util import Pt
         from pptx.dml.color import RGBColor
-        builder = self.slide.shapes.build_freeform(Pt(pts[0][0]), Pt(pts[0][1]),
-                                                    scale=Pt(1))
-        builder.add_line_segments([(Pt(x), Pt(y)) for x, y in pts[1:]], close=False)
+        # build_freeform takes coordinates in LOCAL units and a scale giving
+        # EMU-per-unit; pass transformed pt values with scale = Pt(1) (EMU/pt).
+        builder = self.slide.shapes.build_freeform(
+            self._X(pts[0][0]), self._Y(pts[0][1]), scale=Pt(1))
+        builder.add_line_segments(
+            [(self._X(x), self._Y(y)) for x, y in pts[1:]], close=False)
         sp = builder.convert_to_shape()
         sp.shadow.inherit = False
         sp.fill.background()
         sp.line.color.rgb = RGBColor(*_hex(color))
-        sp.line.width = Pt(width)
+        sp.line.width = Pt(self._F(width))
 
     def text(self, x, y, s, size=13, color=TXT, anchor="middle",
              weight="normal", italic=False, valign="central"):
@@ -221,7 +250,9 @@ class PptxCanvas:
         else:  # end
             left = x - bw
         top = y - bh / 2
-        tb = self.slide.shapes.add_textbox(Pt(left), Pt(top), Pt(bw), Pt(bh))
+        tb = self.slide.shapes.add_textbox(
+            Pt(self._X(left)), Pt(self._Y(top)),
+            Pt(self._S(bw)), Pt(self._S(bh)))
         tf = tb.text_frame
         tf.word_wrap = False
         tf.vertical_anchor = MSO_ANCHOR.MIDDLE
@@ -236,7 +267,7 @@ class PptxCanvas:
         run = p.add_run()
         run.text = s
         f = run.font
-        f.size = Pt(size)
+        f.size = Pt(self._F(size))
         f.name = "Helvetica Neue"
         f.bold = weight == "bold"
         f.italic = italic
@@ -248,7 +279,8 @@ class PptxCanvas:
         from pptx.dml.color import RGBColor
         for dx in (-gap, 0, gap):
             sp = self.slide.shapes.add_shape(
-                MSO_SHAPE.OVAL, Pt(x + dx - r), Pt(y - r), Pt(2 * r), Pt(2 * r))
+                MSO_SHAPE.OVAL, Pt(self._X(x + dx - r)), Pt(self._Y(y - r)),
+                Pt(self._S(2 * r)), Pt(self._S(2 * r)))
             sp.shadow.inherit = False
             sp.fill.solid()
             sp.fill.fore_color.rgb = RGBColor(*_hex(color))
