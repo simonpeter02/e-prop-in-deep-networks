@@ -104,6 +104,73 @@ def holm(pvals) -> np.ndarray:
     return adj
 
 
+# ─────────────────────── cluster permutation (over time) ─────────────────────
+def _t_per_column(D: np.ndarray) -> np.ndarray:
+    """One-sample t-statistic of each column of D (n_seeds, T) across seeds."""
+    n = D.shape[0]
+    mean = D.mean(0)
+    sd = D.std(0, ddof=1)
+    se = sd / np.sqrt(n)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        t = np.where(se > 0, mean / se, 0.0)
+    return t
+
+
+def _clusters_from_t(t: np.ndarray, tcrit: float):
+    """Contiguous same-sign runs with |t| > tcrit. Returns [(i0, i1, sign, mass)]."""
+    T = len(t)
+    sig = np.abs(t) > tcrit
+    out, i = [], 0
+    while i < T:
+        if sig[i]:
+            s = np.sign(t[i]); j = i
+            while j + 1 < T and sig[j + 1] and np.sign(t[j + 1]) == s:
+                j += 1
+            out.append((i, j, int(s), float(t[i:j + 1].sum())))
+            i = j + 1
+        else:
+            i += 1
+    return out
+
+
+def cluster_perm_test(D, alpha_point: float = 0.05, max_exact: int = 20,
+                      n_mc: int = 20_000, seed: int = 0) -> list:
+    """Cluster-based sign-flip permutation test over a time axis (paired design).
+
+    D : (n_seeds, T) per-seed paired differences on a COMMON time grid (no NaN).
+    Pointwise one-sample t across seeds; contiguous same-sign supra-threshold runs
+    (|t| > t_crit at alpha_point) are candidate clusters with mass = sum of t over the
+    run. Null = distribution of the MAX |cluster mass| under sign-flips of whole seed
+    rows (exact 2^n enumeration when n <= max_exact, else Monte-Carlo). This controls
+    the family-wise error rate across time.
+
+    Returns the OBSERVED clusters as [{t0, t1, sign, mass, p_cluster}] (t0/t1 are
+    inclusive column indices); empty list if no supra-threshold cluster exists.
+    """
+    D = np.asarray(D, float)
+    if D.ndim != 2 or D.shape[0] < 2 or D.shape[1] == 0:
+        return []
+    n, _ = D.shape
+    tcrit = float(stats.t.ppf(1 - alpha_point / 2, n - 1))
+    obs = _clusters_from_t(_t_per_column(D), tcrit)
+    if not obs:
+        return []
+    if n <= max_exact:
+        signs = _exact_sign_matrix(n).astype(float)        # (2^n, n)
+    else:
+        rng = np.random.default_rng(seed)
+        signs = rng.choice(np.array([1.0, -1.0]), size=(n_mc, n))
+    null_max = np.empty(len(signs))
+    for k in range(len(signs)):
+        cl = _clusters_from_t(_t_per_column(signs[k][:, None] * D), tcrit)
+        null_max[k] = max((abs(m) for *_, m in cl), default=0.0)
+    res = []
+    for (i0, i1, s, mass) in obs:
+        p = float(np.sum(null_max >= abs(mass) - 1e-12) / len(signs))
+        res.append(dict(t0=i0, t1=i1, sign=s, mass=mass, p_cluster=p))
+    return res
+
+
 # ─────────────────────────── power analysis ──────────────────────────────────
 def _holm_rows(P: np.ndarray) -> np.ndarray:
     """Vectorised Holm over rows of P (n_sim, m)."""

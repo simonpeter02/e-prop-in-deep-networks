@@ -508,6 +508,37 @@ def test_perm_test_matches_bruteforce() -> bool:
     return True
 
 
+def test_cluster_perm_test() -> bool:
+    """cluster_perm_test: a sustained gap yields a significant covering cluster;
+    pure noise yields no significant cluster (FWER controlled over time)."""
+    print("Test 9: cluster permutation test over time ...")
+    import numpy as _np
+    from experiments.stats import cluster_perm_test
+
+    n, T = 8, 12
+    rng = _np.random.default_rng(0)
+    # case 1: consistent positive gap in columns 4..8, small noise elsewhere
+    D = rng.normal(0.0, 0.02, size=(n, T))
+    D[:, 4:9] += 0.30
+    cl = cluster_perm_test(D)
+    covering = [c for c in cl if c["sign"] > 0 and c["t0"] <= 4 and c["t1"] >= 8]
+    if not (covering and covering[0]["p_cluster"] < 0.05):
+        print(f"  FAIL: sustained gap not recovered as significant cluster: {cl}")
+        return False
+    # case 2: pure noise → no significant cluster
+    D2 = rng.normal(0.0, 0.02, size=(n, T))
+    cl2 = cluster_perm_test(D2)
+    if any(c["p_cluster"] < 0.05 for c in cl2):
+        print(f"  FAIL: false-positive cluster on pure noise: {cl2}")
+        return False
+    # p has the same 2/2^n floor as the underlying sign-flip test
+    if covering[0]["p_cluster"] < 2 / 2 ** n - 1e-9:
+        print(f"  FAIL: p below sign-flip floor: {covering[0]['p_cluster']}")
+        return False
+    print("  PASS  (gap → significant covering cluster; noise → none; floor respected)")
+    return True
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
@@ -534,6 +565,8 @@ def main():
     results["7: ablations"]   = test_ablation_controls()
     print()
     results["8: perm test"]   = test_perm_test_matches_bruteforce()
+    print()
+    results["9: cluster perm"] = test_cluster_perm_test()
     print()
 
     print("=" * 60)
