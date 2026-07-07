@@ -1,0 +1,83 @@
+{
+  "seeds": 1,
+  "trials": 24,
+  "delay": 12,
+  "summary": {
+    "lower": {
+      "full": {
+        "label": {
+          "acc": 1.0,
+          "sem": 0.0,
+          "chance_hi": 0.737062937062937
+        },
+        "margin": {
+          "acc": 0.7,
+          "sem": 0.0,
+          "chance_hi": 0.635
+        }
+      },
+      "ablate_temporal": {
+        "label": {
+          "acc": 1.0,
+          "sem": 0.0,
+          "chance_hi": 0.7279720279720279
+        },
+        "margin": {
+          "acc": 0.625,
+          "sem": 0.0,
+          "chance_hi": 0.55
+        }
+      },
+      "ablate_spatial": {
+        "label": {
+          "acc": 0.5,
+          "sem": 0.0,
+          "chance_hi": 0.5
+        },
+        "margin": {
+          "acc": 0.5,
+          "sem": 0.0,
+          "chance_hi": 0.5
+        }
+      }
+    },
+    "upper": {
+      "full": {
+        "label": {
+          "acc": 1.0,
+          "sem": 0.0,
+          "chance_hi": 0.737062937062937
+        },
+        "margin": {
+          "acc": 0.6,
+          "sem": 0.0,
+          "chance_hi": 0.645
+        }
+      },
+      "ablate_temporal": {
+        "label": {
+          "acc": 1.0,
+          "sem": 0.0,
+          "chance_hi": 0.737062937062937
+        },
+        "margin": {
+          "acc": 0.6,
+          "sem": 0.0,
+          "chance_hi": 0.645
+        }
+      },
+      "ablate_spatial": {
+        "label": {
+          "acc": 1.0,
+          "sem": 0.0,
+          "chance_hi": 0.737062937062937
+        },
+        "margin": {
+          "acc": 0.6,
+          "sem": 0.0,
+          "chance_hi": 0.645
+        }
+      }
+    }
+  }
+}
