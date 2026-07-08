@@ -167,10 +167,13 @@ def pca_2d(X):
     return proj, (var[:2] / var.sum())
 
 
-def geometry_figure(geom_X, label0, margin0):
+def geometry_figure(geom_X, label0, margin0, geom_acc):
     """PCA scatter of the seed-0 lower-layer per-trial gradient, per mode,
     colored by cue margin (unanimous vs split) — the visual counterpart to the
-    decode-accuracy bars above."""
+    decode-accuracy bars above.
+
+    geom_acc maps mode -> seed-0 lower margin-decode accuracy (reused from run()'s
+    decode loop; not recomputed here)."""
     margin0 = np.asarray(margin0).astype(int)
     mcolors = {0: "tab:blue", 1: "tab:red"}
     mlabels = {0: "split (2-1)", 1: "unanimous (3-0)"}
@@ -189,7 +192,7 @@ def geometry_figure(geom_X, label0, margin0):
             data_out[m] = None
         else:
             proj, var = out
-            acc = decode_cv(X, margin0, seed=0)["acc"]
+            acc = geom_acc[m]
             for cls in (0, 1):
                 sel = margin0 == cls
                 ax.scatter(proj[sel, 0], proj[sel, 1], s=14, alpha=0.7,
@@ -291,7 +294,9 @@ def run():
     plt.close(fig)
     print(f"\nsaved {RESULTS}/exp5_cue_decoding.[pdf,svg,json]", flush=True)
 
-    geometry_figure(geom_X, label0, margin0)
+    # seed-0 lower margin-decode accuracies already computed in the loop above
+    geom_acc = {m: res["lower"][m]["margin"][0]["acc"] for m in MODES}
+    geometry_figure(geom_X, label0, margin0, geom_acc)
     return summary
 
 
