@@ -50,7 +50,7 @@ CUE_STRIDE = CUE_DUR + TASK_KW["inter_cue_interval"]   # 5
 
 # ── cue variables recovered from the input (channel 0 ramp direction) ─────────
 def cue_variables(inp):
-    """Per-trial (binary label, cue margin) from the feature channel.
+    """Per-trial (binary label, cue margin, rising-count) from the feature channel.
 
     For each cue window the deterministic ramp is direction*linspace(-amp,amp);
     rising (side 0) increases, falling (side 1) decreases across the window. With
@@ -60,6 +60,7 @@ def cue_variables(inp):
     -------
     label  : (N,) int   1 = falling-majority (rising-count < 1.5), else 0
     margin : (N,) int   1 = unanimous (count in {0,3}), 0 = split (count in {1,2})
+    count  : (N,) int   number of rising cues, in {0..N_CUES} (the cue "type")
     """
     x0 = inp[:, :, 0]                                   # (T, B)
     count_rising = torch.zeros(inp.shape[1], device=inp.device)
@@ -70,7 +71,7 @@ def cue_variables(inp):
     count = count_rising.cpu().numpy().astype(int)      # (N,) in {0..N_CUES}
     label  = (count < N_CUES / 2.0).astype(int)         # falling-majority = 1
     margin = np.isin(count, [0, N_CUES]).astype(int)    # unanimous = 1
-    return label, margin
+    return label, margin, count
 
 
 # ── per-trial gradients (B=1) reusing the existing rule ───────────────────────
@@ -167,16 +168,16 @@ def pca_2d(X):
     return proj, (var[:2] / var.sum())
 
 
-def geometry_figure(geom_X, label0, margin0, geom_acc):
+def geometry_figure(geom_X, label0, count0, geom_acc):
     """PCA scatter of the seed-0 lower-layer per-trial gradient, per mode,
-    colored by cue margin (unanimous vs split) — the visual counterpart to the
-    decode-accuracy bars above.
+    colored by the cue TYPE — the number of rising cues (0..N_CUES) — the visual
+    counterpart to the decode-accuracy bars above.
 
     geom_acc maps mode -> seed-0 lower margin-decode accuracy (reused from run()'s
     decode loop; not recomputed here)."""
-    margin0 = np.asarray(margin0).astype(int)
-    mcolors = {0: "tab:blue", 1: "tab:red"}
-    mlabels = {0: "split (2-1)", 1: "unanimous (3-0)"}
+    count0 = np.asarray(count0).astype(int)
+    cmap = plt.cm.viridis                                 # sequential: 0 -> N_CUES rising
+    ccolors = {c: cmap(c / N_CUES) for c in range(N_CUES + 1)}
 
     fig, axes = plt.subplots(1, 3, figsize=(15, 4.8))
     data_out = {}
@@ -193,24 +194,26 @@ def geometry_figure(geom_X, label0, margin0, geom_acc):
         else:
             proj, var = out
             acc = geom_acc[m]
-            for cls in (0, 1):
-                sel = margin0 == cls
+            for c in range(N_CUES + 1):
+                sel = count0 == c
+                if not sel.any():
+                    continue
                 ax.scatter(proj[sel, 0], proj[sel, 1], s=14, alpha=0.7,
-                           color=mcolors[cls], label=mlabels[cls])
+                           color=ccolors[c], label=f"{c} rising")
             ax.set_xlabel(f"PC1 ({var[0]*100:.0f}%)")
             ax.set_ylabel(f"PC2 ({var[1]*100:.0f}%)")
             ax.set_title(f"{mode_lab}\ndecode acc (margin) = {acc:.2f}", fontsize=10)
             data_out[m] = dict(proj=proj.tolist(), explained_variance_ratio=var.tolist(),
                                 margin_decode_acc=acc)
-    axes[0].legend(fontsize=8, loc="best")
-    fig.suptitle("Geometry of the per-trial lower-layer gradient (PCA, seed 0): cue margin "
-                 "separates only when the temporal carry survives", fontsize=11)
+    axes[0].legend(fontsize=8, loc="best", title="rising cues")
+    fig.suptitle("Geometry of the per-trial lower-layer gradient (PCA, seed 0), colored by "
+                 "cue type (rising-cue count): the temporal carry makes it cue-specific", fontsize=11)
     fig.tight_layout()
     for ext in ("pdf", "svg"):
         fig.savefig(f"{RESULTS}/exp5_gradient_geometry.{ext}")
     plt.close(fig)
 
-    json.dump({"seed": 0, "modes": MODES, "margin": margin0.tolist(),
+    json.dump({"seed": 0, "modes": MODES, "count": count0.tolist(),
                "label": np.asarray(label0).astype(int).tolist(), "per_mode": data_out},
               open(f"{RESULTS}/exp5_gradient_geometry.json", "w"), indent=2)
     print(f"saved {RESULTS}/exp5_gradient_geometry.[pdf,svg,json]", flush=True)
@@ -223,12 +226,12 @@ def run():
     # results[layer][mode][target] = list over seeds of dict(acc, chance_mean, chance_hi)
     layers = {"lower": LOWER, "upper": UPPER}
     res = {lyr: {m: {"label": [], "margin": []} for m in MODES} for lyr in layers}
-    geom_X, label0, margin0 = {}, None, None  # seed-0 lower-layer grads, for the PCA figure
+    geom_X, label0, count0 = {}, None, None  # seed-0 lower-layer grads, for the PCA figure
 
     for s in range(N_SEEDS):
         model = new_model(1000 + s)
         inp, tgt, msk = batch(N_TRIALS, DELAY, 5000 + s)
-        label, margin = cue_variables(inp)
+        label, margin, count = cue_variables(inp)
         print(f"  seed {s}: unanimous frac={margin.mean():.2f} "
               f"falling-maj frac={label.mean():.2f}", flush=True)
         for m in MODES:
@@ -239,7 +242,7 @@ def run():
             if s == 0:
                 geom_X[m] = Xl
         if s == 0:
-            label0, margin0 = label, margin
+            label0, count0 = label, count
         print(f"  seed {s} done", flush=True)
 
     # aggregate mean ± sem over seeds
@@ -296,7 +299,7 @@ def run():
 
     # seed-0 lower margin-decode accuracies already computed in the loop above
     geom_acc = {m: res["lower"][m]["margin"][0]["acc"] for m in MODES}
-    geometry_figure(geom_X, label0, margin0, geom_acc)
+    geometry_figure(geom_X, label0, count0, geom_acc)
     return summary
 
 
