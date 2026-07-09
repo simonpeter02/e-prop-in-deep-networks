@@ -1,6 +1,6 @@
-# Deep E-prop: Credit Assignment Across Time *and* Depth in Recurrent Networks
+# Deep E-prop: Credit Assignment in Deep Recurrent Networks
 
-**NeuroAI & ML 4 Neuro — Sommersemester 2026**
+**NeuroAI & ML 4 Neuro - S2026**
 
 **Group:** Simon Peter, Yannick Säckl, Ruchit Kumar Patel
 
@@ -8,23 +8,27 @@
 
 ## 1. Project summary
 
-**Title:** *Deep E-prop — testing online credit assignment across time and depth in deep recurrent networks.*
+**Title:** *Deep E-prop: testing online credit assignment across time and depth in deep recurrent networks.*
 
 **Scientific question.** E-prop (Bellec et al. 2020) replaces backprop-through-time with a
-forward, biologically plausible eligibility trace. Does its trace approximation still carry
-useful credit when the network is made **deep**, where a lower-layer synapse must receive
-credit that has to travel both *up through layers* (depth) **and** *forward through time*
-(the top layer's recurrence)?
+forward, biologically plausible eligibility trace.
+Can the recently proposed deep extension of e-prop (Millidge 2025) perform meaningful credit assignment in deep recurrent networks? Which dimension of the trace contributes how much (time vs. depth)
 
 **Hypothesis.** Deep e-prop (Millidge 2025) assigns credit across time and depth
 simultaneously; removing either path (the depth path or the cross-layer temporal path)
 measurably degrades lower-layer learning, and the temporal path carries most of the
 lower-layer credit on a task that requires accumulating a learned feature over a delay.
 
-**Approach.** We build a leaky-integrator deep RNN and compare **full deep e-prop** against
-two targeted ablations (`ablate_spatial`, `ablate_temporal`), a **random-reservoir** control,
-and **BPTT** as ground truth, on a hierarchical "classify-then-count" task designed so that
-solving it *requires* both depth and temporal credit.
+**Approach.**
+
+*Experiment 1.* We implement a non-spiking version of e-prop using leaky-tanh RNNs and
+validate the implementation by reproducing Bellec et al. (2020)'s single-layer results on
+their cue-accumulation task.
+
+*Experiment 2.* We extend the setup to multiple layers and compare **full deep e-prop**
+against two targeted ablations (`ablate_spatial`, `ablate_temporal`), a **random-reservoir**
+control, and **BPTT** as ground truth, on a hierarchical "classify-then-count" task designed
+so that solving it *requires* both depth and temporal credit.
 
 ---
 
@@ -40,18 +44,18 @@ e-prop-in-deep-networks/
 ├── tasks/                        # benchmark tasks
 │   ├── store_and_recall.py       #   single-layer reproduction task
 │   ├── cue_accumulation.py       #   evidence-accumulation task
-│   ├── hierarchical_cue.py       #   ★ main task: classify-then-count temporal motifs
+│   ├── hierarchical_cue.py       #   main task: classify-then-count temporal motifs
 │   └── routed_cue.py, shd.py, smnist.py
 │
 ├── models/                       # RNN definitions
 │   ├── vanilla_rnn.py, leaky_rnn.py
-│   ├── deep_rnn.py               #   ★ leaky DeepRNN used for the main result
+│   ├── deep_rnn.py               #   leaky DeepRNN used for the main result
 │   └── lif_rnn.py, deep_lif.py, deep_alif.py   # spiking variants (exploratory)
 │
 ├── learning_rules/               # gradient rules (shared interface)
 │   ├── bptt.py                   #   ground truth
 │   ├── eprop.py, eprop_lif.py    #   single-layer e-prop
-│   ├── deep_eprop.py             #   ★ deep e-prop + the two ablations
+│   ├── deep_eprop.py             #   deep e-prop + the two ablations
 │   ├── deep_rtrl.py              #   exact online reference (RTRL)
 │   └── interface.py              #   make_learning_rule() factory
 │
@@ -59,12 +63,12 @@ e-prop-in-deep-networks/
 │   ├── single_layer_eprop.py     #   single-layer store-and-recall reproduction
 │   ├── deep_eprop_comparison.py  #   2-layer deep e-prop vs d=0 vs BPTT
 │   ├── depth_sweep.py            #   1–3 layer sweep
-│   ├── deep_credit_time_depth.py #   ★ MAIN RESULT (Experiment 2): E1/E2/E3 + stats
+│   ├── deep_credit_time_depth.py #   MAIN RESULT (Experiment 2): E1/E2/E3 + stats
 │   └── exp5_*.py, pilot_*.py     #   spiking / reservoir-resistance explorations
 │
 ├── notebooks/
 │   ├── deep_eprop_colab.ipynb              # end-to-end Colab run
-│   └── time_depth_detailed_results.ipynb   # ★ detailed main-result notebook + reservoir checks
+│   └── time_depth_detailed_results.ipynb   # detailed main-result notebook + reservoir checks
 │
 ├── figures/                      # figure-generation scripts + schematic diagrams
 ├── docs/
@@ -76,8 +80,6 @@ e-prop-in-deep-networks/
 
 > ⚠️ **Not yet in the repo:** Ruchit's single-layer **cue-accumulation** reproduction of
 > Bellec et al. 2020 (**Experiment 1**, see §4) is not committed yet and will be added.
-> The `experiments/single_layer_eprop.py` file present today is the single-layer
-> **store-and-recall** reproduction, which is a *different* task.
 
 ---
 
@@ -157,7 +159,7 @@ organization of the code repository.
 ## 5. Documentation of LLM usage
 
 We used **Claude Opus 4.8** and **Fable 5** to assist in producing the code in this
-repository — specifically the implementation of the training loops and the plotting code —
+repository — specifically the implementation of the training loops and the plotting code,
 as well as for repository organization and documentation. All generated code, results, and
 derivations were reviewed and are understood by the authors, who remain responsible for the
 work in this project.
