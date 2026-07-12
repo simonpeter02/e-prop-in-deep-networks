@@ -19,10 +19,20 @@ networks, where a lower-layer synapse's credit must reach the readout by travell
 **up through the layers** (a *spatial/depth* path) and **forward through time** in the
 upper layers' recurrence (a *cross-layer temporal* path).
 
-**We ask:** does deep e-prop actually carry credit along *both* paths, and how much does each
-path matter?
+**We ask:** does deep e-prop actually carry credit along *both* paths, and how much does each path matter?
+
+Hypotheses:
+H1: Feasibility: The deep e-prop recursion performs meaningful credit assignment across depth: its parameter gradients are positively aligned with the exact BPTT gradient at every layer, and a network trained with it learns a task that genuinely requires routing credit through the lower recurrent layer.
+Prediction: cos(g_deep-eprop, g_BPTT) > 0 at all layers, loss decreases, and this holds specifically on a task a frozen lower layer cannot solve. Null: bottom-layer gradient is uncorrelated with the true gradient, or no better than the degenerate both-traces-ablated floor.
+
+H2: Attribution (time vs. depth): The exact gradient is a sum over paths in the time x depth lattice; deep e-prop keeps two forward traces, ε^h and ε^z. Their time vs depth contributions are separable by ablation of the respective component.
+Prediction: 2
+
+a: 
 
 ## 2. Method
+
+1) Feasibility check --> 1-layer non-spiking reproduction of Bellec et al as sanity check
 
 **Model.** A two-layer leaky-integrator RNN (`models/deep_rnn.py`):
 `hˡ_t = (1−αˡ)·hˡ_{t−1} + αˡ·tanh(aˡ_t)`, with per-layer rates α = [0.5, 0.05] (fast lower,
@@ -124,9 +134,13 @@ Freezing both layers (random reservoir + trained readout) reaches ≈ 0.75 — a
 
 | Figure | File in `results/` | Command |
 |---|---|---|
-| Fig 1 — gradient credit | `exp5_gradient_credit.{svg,pdf}` | `python -m experiments.deep_credit_time_depth e1` |
-| Fig 2 — credit summary | `exp5_credit_summary.{svg,pdf}` | `python -m experiments.deep_credit_time_depth e1` |
-| Fig 3 — learning curves | `exp5_learning_curves.{svg,pdf}` | `python -m experiments.deep_credit_time_depth e2` |
-| Fig 4 — reservoir control | `exp5_reservoir_control.{svg,pdf}` | `notebooks/time_depth_detailed_results.ipynb` |
+| Fig 1 - learning curves single layer | `` | `` |
+| Fig 1 - single layer speed threshold | `` | `` |
+| Fig 1 - single layer delay sweep | `` | `` |
+| Fig 1 - learning curves | `exp5_learning_curves.{svg,pdf}` | `` |
+| Fig 2 - gradient credit | `exp5_gradient_credit.{svg,pdf}` | `` |
+| Fig 3 - speed comparison | `exp5_speed_threshold.{svg,pdf}` | `` |
+| Fig 4 - credit summary | `exp5_credit_summary.{svg,pdf}` | `` |
+| Fig 5 — reservoir control | `exp5_reservoir_control.{svg,pdf}` | `` |
 
 _(Presentation figure selection to be finalized with the team in iteration 2.)_
