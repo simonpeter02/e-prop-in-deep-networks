@@ -1,11 +1,11 @@
-# Experiment 5 — Mathematics of the Model, Task, and Learning Modes
+# Mathematics of the Model, Task, and Learning Modes
 
 **Credit assignment across time *and* depth, simultaneously.**
 
-This document states every equation behind Experiment 5 (the hierarchical
+This document states every equation behind Experiment 2 (the hierarchical
 "classify-then-count" task on a 2-layer leaky `DeepRNN`), and then works out, for
-each learning mode — full deep e-prop, the two ablations, and the readout-only
-reservoir control — *exactly which parameter receives which gradient and what that
+each learning mode  (full deep e-prop, the two ablations, and the readout-only
+reservoir control *exactly which parameter receives which gradient and what that
 gradient tensor looks like* (nonzero, structurally zero, exact, or approximate).
 It closes with the role of the **leaky** architecture and how each control would
 behave in a **non-leaky** network.

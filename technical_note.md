@@ -3,9 +3,8 @@
 **NeuroAI & ML 4 Neuro — Sommersemester 2026**
 **Authors:** Simon Peter, Yannick Säckl, Ruchit Kumar Patel
 
-> This note summarizes the method, main results, and limitations for a reader who will not
-> read the code. The full mathematical derivation, with every equation and its numerical
-> verification against the code, is in [`docs/experiment5_mathematics.md`](docs/experiment5_mathematics.md).
+> This note summarizes the method, main results, and limitations. The full mathematical derivation, with every equation and its numerical
+> verification against the code, can be found in [`docs/mathematical_note.md`](docs/mathematical_note.md).
 
 ---
 
@@ -21,14 +20,32 @@ upper layers' recurrence (a *cross-layer temporal* path).
 
 **We ask:** does deep e-prop actually carry credit along *both* paths, and how much does each path matter?
 
-Hypotheses:
-H1: Feasibility: The deep e-prop recursion performs meaningful credit assignment across depth: its parameter gradients are positively aligned with the exact BPTT gradient at every layer, and a network trained with it learns a task that genuinely requires routing credit through the lower recurrent layer.
-Prediction: cos(g_deep-eprop, g_BPTT) > 0 at all layers, loss decreases, and this holds specifically on a task a frozen lower layer cannot solve. Null: bottom-layer gradient is uncorrelated with the true gradient, or no better than the degenerate both-traces-ablated floor.
+### Hypotheses
 
-H2: Attribution (time vs. depth): The exact gradient is a sum over paths in the time x depth lattice; deep e-prop keeps two forward traces, ε^h and ε^z. Their time vs depth contributions are separable by ablation of the respective component.
-Prediction: 2
+**H1 — Feasibility.** The deep e-prop recursion performs meaningful credit assignment across
+depth: its parameter gradients are positively aligned with the exact BPTT gradient at every
+layer, and a network trained with it learns a task that genuinely requires routing credit
+through the lower recurrent layer.
+- **Prediction:** cos(g_deep-eprop, g_BPTT) > 0 at every layer, held-out accuracy improves with
+  training, and this holds specifically on a task a *frozen* lower layer cannot solve on its own.
+- **Null:** the lower-layer gradient is uncorrelated with the true BPTT gradient, or a network
+  trained with it does no better than the degenerate floor where both cross-layer traces are
+  ablated (a random reservoir with only the readout trained).
 
-a: 
+**H2 — Attribution (time vs. depth).** The exact BPTT gradient is a sum over paths through the
+time × depth lattice; deep e-prop's cross-layer trace
+`ε^z = (∂z/∂h)·ε^h + (∂z/∂z_{t−1})·ε^z_{t−1}` carries two additive components — a **spatial**
+term (∂z/∂h, the depth path) and a **cross-layer temporal** term (∂z/∂z_{t−1}, the time path).
+Zeroing each term in isolation (`ablate_spatial`, `ablate_temporal`) should isolate its
+contribution to the lower layer's credit.
+- **Prediction:** `ablate_spatial` removes the only route into the lower-layer gradient, so it
+  should collapse to *exactly* zero; `ablate_temporal` should leave a small residual gradient
+  from the current time step alone, with lower cosine to BPTT than the full rule. Because the
+  task requires holding information across a silent delay, the majority of the lower layer's
+  credit *magnitude* should be attributable to the temporal term rather than the spatial one.
+- **Null:** the two ablations leave the lower-layer gradient materially unchanged from full
+  (i.e. the traces are not functionally distinguishable), or the temporal term instead accounts
+  for only a minor share of the credit.
 
 ## 2. Method
 
@@ -74,10 +91,8 @@ Full deep e-prop matches BPTT gradients for both layers (lower cosine ≈ 0.65�
 cross-layer temporal trace `ε^z` across delays 4–32 — exactly the "count across the delay"
 path the task is built to require.
 
-<!-- FIGURE PLACEHOLDER 1 — gradient credit vs BPTT + cross-temporal credit share.
-     Source: results/exp5_gradient_credit.svg  |  Generate: python -m experiments.deep_credit_time_depth e1 -->
-> **[Figure 1 — placeholder]** _Per-layer gradient cosine to BPTT and cross-temporal credit share vs delay._
-> `![Figure 1](results/exp5_gradient_credit.svg)`
+![Figure 2.2 — Per-layer gradient cosine to BPTT and cross-temporal credit share vs delay.](results/main_results/exp2.2_gradient_credit.png)
+*Figure 2.2 — Per-layer gradient cosine to BPTT and cross-temporal credit share vs delay. (`results/main_results/exp2.2_gradient_credit.{svg,pdf,png}`, `notebooks/main_results.ipynb` §2.2)*
 
 **Result 2 — the two ablations behave exactly as the credit-path picture predicts.**
 `ablate_spatial` zeroes the lower-layer gradient *exactly* (the depth path is the only
@@ -86,28 +101,22 @@ gradient (≈ 6–12% of full, cosine to BPTT ≈ 0.6). Both leave the **top lay
 gradients bit-for-bit identical to full**, because the ablations act only on the lower-layer
 cross-trace.
 
-<!-- FIGURE PLACEHOLDER 2 — credit summary bars (lower vs top cosine, full/ablate_temporal/ablate_spatial).
-     Source: results/exp5_credit_summary.svg  |  Generate: python -m experiments.deep_credit_time_depth e1 -->
-> **[Figure 2 — placeholder]** _Lower- vs top-layer gradient cosine at D=12 for full and both ablations._
-> `![Figure 2](results/exp5_credit_summary.svg)`
+![Figure 2.4 — Lower- vs top-layer gradient cosine at D=12 for full and both ablations.](results/main_results/exp2.4_credit_summary.png)
+*Figure 2.4 — Lower- vs top-layer gradient cosine at D=12 for full and both ablations. (`results/main_results/exp2.4_credit_summary.{svg,pdf,png}`, `notebooks/main_results.ipynb` §2.4)*
 
 **Result 3 — the credit-quality difference shows up in learning.**
 At D = 12, final accuracy orders as **BPTT ≥ full > both controls** under matched SGD; under
 Adam (which normalizes magnitude) the difference appears as convergence *speed*.
 
-<!-- FIGURE PLACEHOLDER 3 — learning curves, full vs ablations vs BPTT.
-     Source: results/exp5_learning_curves.svg  |  Generate: python -m experiments.deep_credit_time_depth e2 -->
-> **[Figure 3 — placeholder]** _Learning curves at D=12 (mean ± SEM across seeds)._
-> `![Figure 3](results/exp5_learning_curves.svg)`
+![Figure 2.1 — Learning curves at D=12 (mean ± SEM across seeds).](results/main_results/exp2.1_learning_curves.png)
+*Figure 2.1 — Learning curves at D=12 (mean ± SEM across seeds). (`results/main_results/exp2.1_learning_curves.{svg,pdf,png}`, `notebooks/main_results.ipynb` §2.1)*
 
 **Result 4 — reservoir control locates the floor.**
 Freezing both layers (random reservoir + trained readout) reaches ≈ 0.75 — above chance
 (0.5) but well below the trainable rules (≈ 1.0).
 
-<!-- FIGURE PLACEHOLDER 4 — reservoir control accuracy vs trained rules.
-     Source: results/exp5_reservoir_control.svg  |  Generate: (reservoir cells in notebooks/time_depth_detailed_results.ipynb) -->
-> **[Figure 4 — placeholder]** _Random-reservoir floor vs trainable rules._
-> `![Figure 4](results/exp5_reservoir_control.svg)`
+![Figure 2.6 — Random-reservoir floor vs trainable rules.](results/main_results/exp2.6_reservoir_control.png)
+*Figure 2.6 — Random-reservoir floor vs trainable rules. (`results/main_results/exp2.6_reservoir_control.{svg,pdf,png}`, `notebooks/main_results.ipynb` §2.6)*
 
 ## 4. Limitations
 
@@ -134,13 +143,12 @@ Freezing both layers (random reservoir + trained readout) reaches ≈ 0.75 — a
 
 | Figure | File in `results/` | Command |
 |---|---|---|
-| Fig 1 - learning curves single layer | `` | `` |
-| Fig 1 - single layer speed threshold | `` | `` |
-| Fig 1 - single layer delay sweep | `` | `` |
-| Fig 1 - learning curves | `exp5_learning_curves.{svg,pdf}` | `` |
-| Fig 2 - gradient credit | `exp5_gradient_credit.{svg,pdf}` | `` |
-| Fig 3 - speed comparison | `exp5_speed_threshold.{svg,pdf}` | `` |
-| Fig 4 - credit summary | `exp5_credit_summary.{svg,pdf}` | `` |
-| Fig 5 — reservoir control | `exp5_reservoir_control.{svg,pdf}` | `` |
-
-_(Presentation figure selection to be finalized with the team in iteration 2.)_
+| Fig 1.1 - learning curves single layer | `` | `` |
+| Fig 1.2 - single layer speed threshold | `` | `` |
+| Fig 1.3 - single layer delay sweep | `` | `` |
+| Fig 2.1 - learning curves | `main_results/exp2.1_learning_curves.{svg,pdf}` | `notebooks/main_results.ipynb` §2.1 |
+| Fig 2.2 - gradient credit | `main_results/exp2.2_gradient_credit.{svg,pdf}` | `notebooks/main_results.ipynb` §2.2 |
+| Fig 2.3 - speed threshold | `main_results/exp2.3_speed_threshold.{svg,pdf}` | `notebooks/main_results.ipynb` §2.3 |
+| Fig 2.4 - credit summary | `main_results/exp2.4_credit_summary.{svg,pdf}` | `notebooks/main_results.ipynb` §2.4 |
+| Fig 2.5 - cue decoding | `main_results/exp2.5_cue_decoding.{svg,pdf}` | `notebooks/main_results.ipynb` §2.5 |
+| Fig 2.6 - reservoir control | `main_results/exp2.6_reservoir_control.{svg,pdf}` | `notebooks/main_results.ipynb` §2.6 |
