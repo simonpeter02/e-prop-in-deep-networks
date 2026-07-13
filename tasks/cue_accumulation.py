@@ -3,8 +3,27 @@ Cue accumulation (evidence accumulation) task.
 
 The network observes a stream of brief left/right cue pulses separated by
 silence, then must accumulate evidence across a long silent delay and report
-which side received the majority of cues at a single decision step.
+which side received the majority of cues.
 
+Two encodings of the same task live here:
+
+  generate_batch()          — dense/analog, n_in = 5, one-hot targets + mask.
+                              Time-major (T, B, ·). Used by the depth/alpha
+                              sweeps and tests/sanity_checks.py.
+
+  generate_poisson_batch()  — population-coded Bernoulli ("Poisson") spikes,
+                              n_in = 40, integer labels, no mask. Batch-major
+                              (B, T, ·). This is the encoding of Bellec et al.
+                              (2020) and backs §1 of the main results notebook
+                              (experiments/single_layer_cue_accum.py).
+
+Both share the decision rule: whichever side had the STRICT majority of cues
+wins. Ties (possible when n_cues is even) are broken uniformly at random;
+odd n_cues eliminates them. Label 0 = "left wins", 1 = "right wins".
+
+
+Variant 1 — dense, 5-channel (generate_batch)
+---------------------------------------------
 Input channels (n_in = 5):
   0 : left cue  (pulse of height 1.0 for cue_duration steps)
   1 : right cue (pulse of height 1.0 for cue_duration steps)
@@ -22,8 +41,32 @@ Timing layout (each box = cue_duration + inter_cue_interval steps):
   cue_window = n_cues * (cue_duration + inter_cue_interval)
   T = cue_window + delay + 1           (+1 is the decision/recall step)
 
-Design motivation
------------------
+
+Variant 2 — population-coded spikes (generate_poisson_batch)
+------------------------------------------------------------
+The n_in channels split into four equal populations of NC = n_in // 4 neurons:
+
+  [0 : NC)      left-cue population   — fires at f_hi while a LEFT cue is on
+  [NC : 2NC)    right-cue population  — fires at f_hi while a RIGHT cue is on
+  [2NC : 3NC)   recall population     — fires at f_hi during the recall window
+  [3NC : 4NC)   background/decoy      — background rate f_lo only
+
+Every channel additionally fires at background rate f_lo at every step, so
+"silence" is noisy rather than exactly zero. Spikes are Bernoulli(f) draws
+(a Poisson process discretised to one step), hence the name.
+
+Timing layout:
+  [cue1][cue2]...[cueN][---- delay D ----][--- recall window ---]
+
+  cue_window = n_cues * (cue_duration + inter_cue_interval)
+  T = cue_window + delay + recall_duration
+
+The readout is taken over the whole recall window (not a single step), so no
+mask is returned — the caller knows the window is the last recall_duration
+steps.
+
+Design motivation (shared by both variants)
+-------------------------------------------
 The silent delay D is the central feature: the accumulated left/right count
 must survive D steps with no external input.  This is only possible if
 stored in the slow per-neuron leak state, not in transient firing activity.
@@ -36,10 +79,6 @@ enabling the count to survive D >> τ steps.
 
 This creates the e-prop > d=0 wedge: e-prop's eligibility trace carries the
 slow diagonal decay (1-alpha) forward in time, while d=0 discards it.
-
-Decision rule: whichever side had the STRICT majority of cues wins.
-Ties (possible when n_cues is even) are broken uniformly at random.
-Using odd n_cues (default n_cues=5) eliminates ties.
 
 Unit sanity checks (in tests/sanity_checks.py):
   - Shapes: inputs (T,B,5), targets (T,B,2), mask (T,B)
@@ -54,6 +93,10 @@ from typing import Optional, Tuple
 
 N_IN  = 5   # left, right, recall, noise, bias
 N_OUT = 2   # 0=left wins, 1=right wins
+
+# ── Defaults for the population-coded variant (Bellec et al. 2020 style) ─────
+POISSON_N_IN  = 40   # 4 populations x 10 neurons
+POISSON_N_OUT = 2    # 0=left wins, 1=right wins
 
 
 def generate_batch(
@@ -179,3 +222,122 @@ def sequence_length(
 ) -> int:
     """Return the total sequence length T for the given task parameters."""
     return n_cues * (cue_duration + inter_cue_interval) + delay + 1
+
+
+# ── Population-coded (Poisson-spike) variant ────────────────────────────────
+#
+# Used by §1 of the main results notebook via experiments/single_layer_cue_accum.py.
+# See the module docstring for the channel layout and timing.
+
+def poisson_sequence_length(
+    delay: int = 50,
+    n_cues: int = 7,
+    cue_duration: int = 15,
+    inter_cue_interval: int = 5,
+    recall_duration: int = 25,
+) -> int:
+    """Total trial length T for the population-coded variant.
+
+    T = n_cues * (cue_duration + inter_cue_interval) + delay + recall_duration
+    """
+    return n_cues * (cue_duration + inter_cue_interval) + delay + recall_duration
+
+
+def generate_poisson_batch(
+    batch_size: int,
+    delay: int = 50,
+    n_cues: int = 7,
+    cue_duration: int = 15,
+    inter_cue_interval: int = 5,
+    recall_duration: int = 25,
+    f_hi: float = 0.25,
+    f_lo: float = 0.05,
+    n_in: int = POISSON_N_IN,
+    device: str = "cpu",
+) -> Tuple[Tensor, Tensor]:
+    """Generate a batch of population-coded cue-accumulation trials.
+
+    Spikes are Bernoulli draws: every channel fires at the background rate
+    `f_lo` at every step, and the population coding the currently-active event
+    (left cue / right cue / recall) fires at the high rate `f_hi` instead.
+
+    Parameters
+    ----------
+    batch_size          : number of independent trials
+    delay               : silent gap between last cue and the recall window (steps)
+    n_cues              : number of cue pulses per trial (odd → no ties)
+    cue_duration        : active duration of each cue pulse (steps)
+    inter_cue_interval  : silence after each cue pulse (steps)
+    recall_duration     : length of the recall window at the end of the trial
+    f_hi                : per-step spike probability of an active population
+    f_lo                : per-step background spike probability of every channel
+    n_in                : number of input channels; must be divisible by 4
+    device              : torch device string
+
+    Returns
+    -------
+    inputs : (B, T, n_in)  float32 — Bernoulli spikes, batch-major
+    labels : (B,)           int64   — 0 = "left wins", 1 = "right wins"
+
+    where T = poisson_sequence_length(delay, n_cues, cue_duration,
+                                      inter_cue_interval, recall_duration)
+
+    Notes
+    -----
+    Sampling uses the *global* torch RNG on `device`, so seeding with
+    torch.manual_seed(seed) reproduces a batch exactly. This matches how the
+    training loops in experiments/single_layer_cue_accum.py seed their runs.
+    """
+    if n_in % 4 != 0:
+        raise ValueError(f"n_in must be divisible by 4 (got {n_in})")
+
+    nc          = n_in // 4                       # neurons per population
+    cue_stride  = cue_duration + inter_cue_interval
+    T           = poisson_sequence_length(delay, n_cues, cue_duration,
+                                          inter_cue_interval, recall_duration)
+    B           = batch_size
+
+    # Background firing everywhere, at rate f_lo
+    inputs = (torch.rand(B, T, n_in, device=device) < f_lo).float()
+
+    # Cue sides: 0 = left, 1 = right — shape (B, n_cues)
+    cue_sides = (torch.rand(B, n_cues, device=device) < 0.5).long()
+
+    # Overwrite the active cue population with the high rate, cue by cue.
+    # Trials in the batch see different cue sides, so each side is filled
+    # for the subset of trials showing it.
+    for c in range(n_cues):
+        t0 = c * cue_stride
+        for side in (0, 1):
+            sel = cue_sides[:, c] == side
+            if sel.any():
+                inputs[sel, t0:t0 + cue_duration, side * nc:(side + 1) * nc] = (
+                    torch.rand(int(sel.sum()), cue_duration, nc, device=device) < f_hi
+                ).float()
+
+    # Recall population fires throughout the recall window
+    inputs[:, -recall_duration:, 2 * nc:3 * nc] = (
+        torch.rand(B, recall_duration, nc, device=device) < f_hi
+    ).float()
+
+    # Labels: strict majority of cue sides (1 = right). With odd n_cues there
+    # are no ties, so the > comparison is exact.
+    right_count = cue_sides.sum(dim=1)
+    labels      = (right_count > n_cues // 2).long()
+
+    # Ties (even n_cues only): break uniformly at random
+    if n_cues % 2 == 0:
+        tied = right_count == n_cues // 2
+        if tied.any():
+            labels[tied] = (torch.rand(int(tied.sum()), device=device) < 0.5).long()
+
+    return inputs, labels
+
+
+def poisson_accuracy(logits: Tensor, labels: Tensor) -> float:
+    """Fraction of correct trials for the population-coded variant.
+
+    logits : (B, n_out) — one decision per trial (pre-softmax is fine)
+    labels : (B,)        — integer class labels
+    """
+    return (logits.argmax(dim=-1) == labels).float().mean().item()

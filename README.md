@@ -62,7 +62,8 @@ e-prop-in-deep-networks/
 │
 ├── tasks/                        # benchmark tasks
 │   ├── store_and_recall.py       #   single-layer reproduction task
-│   ├── cue_accumulation.py       #   evidence-accumulation task
+│   ├── cue_accumulation.py       #   evidence accumulation — dense 5-channel variant,
+│   │                             #   plus the population-coded variant used by Experiment 1
 │   ├── hierarchical_cue.py       #   main task: classify-then-count temporal motifs
 │   └── routed_cue.py, shd.py, smnist.py
 │
@@ -80,6 +81,8 @@ e-prop-in-deep-networks/
 │
 ├── experiments/                  # runnable scripts (see §3)
 │   ├── single_layer_eprop.py     #   single-layer store-and-recall reproduction
+│   ├── single_layer_cue_accum.py #   FEASIBILITY CHECK (Experiment 1): single-layer
+│   │                             #   e-prop vs BPTT on cue accumulation (Figs 1.1–1.3)
 │   ├── deep_eprop_comparison.py  #   2-layer deep e-prop vs d=0 vs BPTT
 │   ├── depth_sweep.py            #   1–3 layer sweep
 │   ├── deep_credit_time_depth.py #   MAIN RESULT (Experiment 2): E1/E2/E3 + stats
