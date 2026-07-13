@@ -3,7 +3,7 @@ Paired significance tests + simulation-based power analysis for the deep-eprop
 learning-curve comparisons (full deep e-prop vs the ablated controls / BPTT).
 
 Why paired: for a given seed every method shares the same initial weights AND the
-same training-data stream — only the gradient rule differs — so the natural unit
+same training-data stream - only the gradient rule differs - so the natural unit
 is the per-seed difference d_i = acc(method_a)_i - acc(method_b)_i.
 
 Headline test: exact paired SIGN-FLIP PERMUTATION test (two-sided). Under H0 the
@@ -21,7 +21,7 @@ import numpy as np
 from scipy import stats
 
 
-# ─────────────────────────── sign-flip permutation ───────────────────────────
+# sign-flip permutation
 def _exact_sign_matrix(n: int) -> np.ndarray:
     """All 2^n sign vectors in {+1,-1}, shape (2^n, n) int8."""
     idx = np.arange(2 ** n, dtype=np.int64)
