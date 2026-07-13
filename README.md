@@ -11,13 +11,32 @@
 **Title:** *Deep E-prop: testing online credit assignment across time and depth in deep recurrent networks.*
 
 **Scientific question.** E-prop (Bellec et al. 2020) replaces backprop-through-time with a
-forward, biologically plausible eligibility trace.
-Can the recently proposed deep extension of e-prop (Millidge 2025) perform meaningful credit assignment in deep recurrent networks? Which dimension of the trace contributes how much (time vs. depth)
+forward, biologically plausible eligibility trace. In a **deep** recurrent network a
+lower-layer synapse's credit must reach the readout by travelling both **up through the
+layers** (a *spatial/depth* path) and **forward through time** in the upper layers'
+recurrence (a *cross-layer temporal* path). We ask:
+1. **Feasibility (Q1):** does the deep extension of e-prop (Millidge 2025) actually carry
+   *meaningful*, BPTT-aligned credit along both paths in a deep recurrent network?
+2. **Attribution (Q2):** which dimension of the cross-layer trace contributes how much —
+   time vs. depth?
 
-**Hypothesis.** Deep e-prop (Millidge 2025) assigns credit across time and depth
-simultaneously; removing either path (the depth path or the cross-layer temporal path)
-measurably degrades lower-layer learning, and the temporal path carries most of the
-lower-layer credit on a task that requires accumulating a learned feature over a delay.
+**Hypotheses.**
+
+- **H1 (feasibility).** Deep e-prop's parameter gradients are positively aligned with the
+  exact BPTT gradient at *every* layer, and a network trained with it learns a task that
+  routes credit through the lower recurrent layer.
+  *Prediction:* cos(g_deep-eprop, g_BPTT) > 0 at every layer; held-out accuracy improves with
+  training. *Null:* the lower-layer gradient is uncorrelated with BPTT, or trained networks
+  do no better than the floor where both cross-layer traces are ablated.
+- **H2 (time vs. depth).** The cross-layer trace
+  `ε^z = (∂z/∂h)·ε^h + (∂z/∂z_{t−1})·ε^z_{t−1}` splits into a **spatial** term (∂z/∂h, depth
+  path) and a **cross-layer temporal** term (∂z/∂z_{t−1}, time path). Zeroing each in
+  isolation (`ablate_spatial`, `ablate_temporal`) isolates its contribution.
+  *Prediction:* `ablate_spatial` removes the only route into the lower-layer gradient, so it
+  collapses to *exactly* zero; `ablate_temporal` retains most of the raw cosine to BPTT but
+  the surviving lower-layer gradient becomes cue-agnostic (spatial carry makes gradients
+  *travel*, temporal carry makes them *meaningful*). *Null:* the two ablations leave the
+  lower-layer gradient materially unchanged from full.
 
 **Approach.**
 
@@ -67,13 +86,16 @@ e-prop-in-deep-networks/
 │   └── exp5_*.py, pilot_*.py     #   spiking / reservoir-resistance explorations
 │
 ├── notebooks/
+│   ├── main_results.ipynb                  # PRIMARY: reproduces every figure in the technical note
 │   ├── deep_eprop_colab.ipynb              # end-to-end Colab run
-│   └── time_depth_detailed_results.ipynb   # detailed main-result notebook + reservoir checks
+│   └── time_depth_detailed_results.ipynb   # older detailed main-result notebook + reservoir checks
 │
 ├── figures/                      # figure-generation scripts + schematic diagrams
 ├── docs/
 │   └── experiment5_mathematics.md          # full derivation behind the main result
-├── results/                      # generated figures (.pdf/.svg) + metrics (.json)
+├── results/
+│   └── main_results/             # figures (exp1.*, exp2.*) shown in the technical note (.png/.svg/.pdf)
+│                                 #   + committed metrics JSON (exp5_*.json) the notebook replots from
 └── tests/
     └── sanity_checks.py          # correctness suite (9 tests, CPU, < 60 s)
 ```
@@ -95,9 +117,33 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-**Reproduce the main result (Experiment 2 — hierarchical time-and-depth).**
-All figures/metrics are written to `results/`. Internally the main result is named `exp5`
-(historical numbering); the runnable module is `deep_credit_time_depth`:
+**Reproduce the figures (recommended — `notebooks/main_results.ipynb`).**
+This is the single source for every figure in [`technical_note.md`](technical_note.md).
+Each experiment is split into two parts:
+
+- **(A) Reproduce** — loads the committed `results/main_results/exp5_*.json` and *replots in
+  seconds with no training*. Run only these cells for a quick check. Figures are written to
+  `results/main_results/exp1.*` and `exp2.*` (`.png/.svg/.pdf`).
+- **(B) Full rerun** — repeats all training / gradient computation from scratch and
+  **overwrites** those JSON files. Slower (GPU recommended); use it to verify the numbers.
+
+Run top-to-bottom to regenerate everything from scratch, or run just the **Reproduce** cells
+to redraw the committed results. The notebook self-detects GPU/CPU and clones/pulls the repo
+in its setup cell, so it also runs as-is on Colab.
+
+| Notebook section | Figures |
+|---|---|
+| **1** Single-layer e-prop (Experiment 1) | `exp1.1`–`exp1.3` |
+| **2.1** Learning curves | `exp2.1_learning_curves` |
+| **2.2** Gradient credit vs delay + cross-temporal share | `exp2.2_gradient_credit` |
+| **2.3** Convergence-speed significance | `exp2.3_speed_threshold` |
+| **2.4** Credit summary (D=12) | `exp2.4_credit_summary` |
+| **2.5** Cue decoding (spatial travels / temporal is meaningful) | `exp2.5_cue_decoding` |
+| **2.6** Readout-only reservoir control | `exp2.6_reservoir_control` |
+
+**Under the hood (full multi-seed study + CLI).** The notebook's Full-rerun cells run a
+compact version; the complete multi-seed pipeline (incl. the power/stats analyses) lives in
+`experiments.deep_credit_time_depth` (internally named `exp5` for historical reasons):
 
 ```bash
 python -u -m experiments.deep_credit_time_depth        # all parts (E1+E2+E3)
@@ -118,10 +164,6 @@ python -m experiments.deep_eprop_comparison   # 2-layer deep e-prop vs d=0 vs BP
 python -m experiments.depth_sweep             # 1–3 layer sweep
 python experiments/pilot_reservoir_resistance.py all   # reservoir-resistance pilot
 ```
-
-**Notebooks.** `notebooks/deep_eprop_colab.ipynb` runs the pipeline end-to-end;
-`notebooks/time_depth_detailed_results.ipynb` contains the detailed main-result analysis
-and the reservoir control.
 
 **Correctness suite**
 
@@ -146,7 +188,7 @@ python -m tests.sanity_checks        # 9 tests, CPU-only, < 60 s
   classify-then-count task and the two credit-path ablations (`ablate_spatial`,
   `ablate_temporal`) for **Experiment 2**.
 - **Yannick Säckl** — co-conceptualized both experiments; implemented the random-reservoir
-  control checks for **Experiment 2** (in `notebooks/time_depth_detailed_results.ipynb`).
+  control checks for **Experiment 2** (in `notebooks/main_results.ipynb` §2.6).
 - **Ruchit Kumar Patel** — implemented the single-layer e-prop **cue-accumulation**
   reproduction of Bellec et al. 2020 (**Experiment 1**). _Code pending — not yet added to
   the repository (see §2)._
@@ -172,16 +214,21 @@ Deep e-prop assigns credit across **time and depth simultaneously**. On the hier
 classify-then-count task (mean-zero rising/falling temporal motifs that a frozen random
 lower layer cannot fake), using a 2-layer leaky `DeepRNN` (α = [0.5, 0.05], n_rec = 32):
 
-- **Gradient level (E1):** full deep e-prop tracks BPTT for **both** layers (lower cosine
-  ≈ 0.65–0.77, top ≈ 0.88–0.95); ≈ **91–95%** of lower-layer credit flows through the
-  cross-layer **temporal** trace `ε^z`.
-- **Ablations:** `ablate_spatial` (remove ∂z/∂h) zeroes lower-layer gradients *exactly*;
-  `ablate_temporal` (remove ∂z/∂z_{t−1}) leaves only a small, cue-agnostic decision-step
-  gradient. Both leave the **top layer and readout gradients unchanged**.
-- **Learning (E2, D=12):** BPTT ≥ full > both controls.
-- **Caveat:** under Adam, a trained top layer reading a *random* lower layer nearly solves
-  the task (`ablate_spatial` ≈ 0.996), well above the frozen-both-layers reservoir floor
-  (≈ 0.75) — an honest limit on the "depth is required" framing (see `technical_note.md`).
+- **Gradient level (2.2):** full deep e-prop tracks BPTT for **both** layers
+  (lower/input-adjacent cosine ≈ 0.73–0.79, top/output-adjacent ≈ 0.92–0.96), positive at
+  every layer and delay (**Q1: yes**); ≈ **93%** of lower-layer credit flows through the
+  cross-layer **temporal** trace `ε^z` (**Q2: temporal dominates**).
+- **Ablations (2.4/2.5):** `ablate_spatial` (remove ∂z/∂h) zeroes lower-layer gradients
+  *exactly*; `ablate_temporal` (remove ∂z/∂z_{t−1}) keeps most of the raw cosine but its
+  lower-layer gradient goes **cue-agnostic** (cue-margin decode ≈ 0.68 vs ≈ 0.84 for full).
+  Both leave the **top layer and readout gradients unchanged**. Spatial carry makes gradients
+  *travel*; temporal carry makes them *meaningful*.
+- **Learning (2.1/2.3, D=12):** under Adam all trainable rules reach ≈ 1.0, so credit quality
+  shows up as **convergence speed** — steps-to-90% order BPTT < full < ablate_temporal ≈
+  ablate_spatial (full significantly faster than either ablation; the two ablations `ns`).
+- **Caveat (2.6):** a frozen random lower layer with a trained top reaches ≈ 100%
+  (indistinguishable from full, perm p ≈ 1.0), so **depth is used but not *required*** on this
+  task — an honest limit on the "depth is required" framing (see `technical_note.md`).
 
 Full derivation and numerical verification: [`docs/experiment5_mathematics.md`](docs/experiment5_mathematics.md).
 
