@@ -3,8 +3,7 @@
 **NeuroAI & ML 4 Neuro - Sommersemester 2026**
 **Authors:** Simon Peter, Yannick Säckl, Ruchit Kumar Patel
 
-> This note summarizes the method, main results, and limitations. The full mathematical derivation and its numerical
-> verification against the code, can be found in [`docs/mathematical_note.md`](docs/mathematical_note.md).
+> This note summarizes the method, main results, and limitations of our project.
 
 ---
 
@@ -68,10 +67,13 @@ Eligibility-trace approximation transfers to RNNs: gradient direction tracks BPT
 
 **Results.**
 ![Figure 1.1 Learning curves for single layer e-prop.](results/main_results/exp1.1_learning_curves.png)
+*Figure 1.1 Learning curves for single layer e-prop. (`results/main_results/exp1.1_gradient_credit.{svg,pdf,png}`, `notebooks/main_results.ipynb` §1.1)*
 
 ![Figure 1.2 Single layer training speed.](results/main_results/exp1.2_speed_threshold.png)
+*Figure 1.2 Single layer training speed. (`results/main_results/exp1.2_learning_curves.{svg,pdf,png}`, `notebooks/main_results.ipynb` §1.2)*
 
 ![Figure 1.3 Single layer delay sweep.](results/main_results/exp1.3_delay_sweep.png)
+*Figure 1.3 Single layer delay sweep. (`results/main_results/exp1.3_delay_sweep.{svg,pdf,png}`, `notebooks/main_results.ipynb` §1.3)*
 
 ### 2.2 Main experiment: hierarchical cue accumulation
 
