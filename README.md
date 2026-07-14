@@ -54,7 +54,7 @@ e-prop-in-deep-networks/
 │   └── main_results.ipynb        # PRIMARY: reproduces every figure in the technical note
 │
 ├── results/                      # committed metrics JSON that the notebook replots from
-│   ├── single_layer_cue_accum_{curves,cosine}.json     #   Experiment 1
+│   ├── exp1_{learning_curves,cosine}.json              #   Experiment 1
 │   ├── exp2_{learning_curves,gradient_credit,cue_decoding,reservoir_control}.json  # Experiment 2
 │   └── main_results/             #   figures cited by the technical note (exp1.x / exp2.x, .png/.svg/.pdf)
 │
