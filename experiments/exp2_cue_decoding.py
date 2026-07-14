@@ -1,5 +1,5 @@
 """
-Exp 5 — is the lower-layer gradient CUE-AGNOSTIC under ablate_temporal?
+Experiment 2 — is the lower-layer gradient CUE-AGNOSTIC under ablate_temporal?
 
 Story (which term of the cross-layer trace carries which credit):
     eps^z = (dz/dh)·eps^h  +  (dz/dz_{t-1})·eps^z_{t-1}
@@ -20,8 +20,8 @@ therefore also decode a readout-sign-independent variable — the cue MARGIN
 delta's sign cannot encode. Cue-margin decodability is the true test of cue credit.
 
 Run:
-    python -u -m experiments.exp5_cue_decoding            # full
-    QUICK=1 python -u -m experiments.exp5_cue_decoding    # fast smoke test
+    python -u -m experiments.exp2_cue_decoding            # full
+    QUICK=1 python -u -m experiments.exp2_cue_decoding    # fast smoke test
 """
 import os, json
 import numpy as np
@@ -210,13 +210,13 @@ def geometry_figure(geom_X, label0, count0, geom_acc):
                  "cue type (rising-cue count): the temporal carry makes it cue-specific", fontsize=11)
     fig.tight_layout()
     for ext in ("pdf", "svg"):
-        fig.savefig(f"{RESULTS}/exp5_gradient_geometry.{ext}")
+        fig.savefig(f"{RESULTS}/exp2_gradient_geometry.{ext}")
     plt.close(fig)
 
     json.dump({"seed": 0, "modes": MODES, "count": count0.tolist(),
                "label": np.asarray(label0).astype(int).tolist(), "per_mode": data_out},
-              open(f"{RESULTS}/exp5_gradient_geometry.json", "w"), indent=2)
-    print(f"saved {RESULTS}/exp5_gradient_geometry.[pdf,svg,json]", flush=True)
+              open(f"{RESULTS}/exp2_gradient_geometry.json", "w"), indent=2)
+    print(f"saved {RESULTS}/exp2_gradient_geometry.[pdf,svg,json]", flush=True)
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
@@ -267,7 +267,7 @@ def run():
 
     os.makedirs(RESULTS, exist_ok=True)
     json.dump({"seeds": N_SEEDS, "trials": N_TRIALS, "delay": DELAY, "summary": summary},
-              open(f"{RESULTS}/exp5_cue_decoding.json", "w"), indent=2)
+              open(f"{RESULTS}/exp2_cue_decoding.json", "w"), indent=2)
 
     # ── figure: 2 panels (lower / upper), grouped bars over {label, margin} ──
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.6), sharey=True)
@@ -293,9 +293,9 @@ def run():
                  "lower-layer credit cue-specific", fontsize=11)
     fig.tight_layout()
     for ext in ("pdf", "svg"):
-        fig.savefig(f"{RESULTS}/exp5_cue_decoding.{ext}")
+        fig.savefig(f"{RESULTS}/exp2_cue_decoding.{ext}")
     plt.close(fig)
-    print(f"\nsaved {RESULTS}/exp5_cue_decoding.[pdf,svg,json]", flush=True)
+    print(f"\nsaved {RESULTS}/exp2_cue_decoding.[pdf,svg,json]", flush=True)
 
     # seed-0 lower margin-decode accuracies already computed in the loop above
     geom_acc = {m: res["lower"][m]["margin"][0]["acc"] for m in MODES}

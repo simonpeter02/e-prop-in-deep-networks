@@ -81,7 +81,7 @@ e-prop-in-deep-networks/
 │   ├── deep_credit_time_depth.py #   full multi-seed study: E1/E2/E3 + power/significance
 │   ├── stats.py                  #   paired tests / permutation / power helpers
 │   ├── single_layer_cue_accum.py #   Experiment 1: single-layer e-prop vs BPTT on cue accumulation
-│   ├── exp5_cue_decoding.py      #   cue-decoding analysis (writes results/exp5_cue_decoding.json)
+│   ├── exp2_cue_decoding.py      #   cue-decoding analysis (writes results/exp2_cue_decoding.json)
 │   └── pilot_reservoir_resistance.py   #   reservoir-resistance pilot (future work)
 │
 ├── notebooks/
@@ -92,8 +92,8 @@ e-prop-in-deep-networks/
 │   └── mathematical_note.md      # full derivation behind the main result + numerical verification
 │
 ├── results/                      # committed metrics the notebook (Part B) replots from
-│   ├── exp5_learning_curves.json, exp5_gradient_credit.json,
-│   │   exp5_cue_decoding.json, exp5_reservoir_control.json
+│   ├── exp2_learning_curves.json, exp2_gradient_credit.json,
+│   │   exp2_cue_decoding.json, exp2_reservoir_control.json
 │   └── main_results/             # figures shown in the technical note (exp1.*, exp2.*) + the
 │                                 #   cue-decoding ladder, as .png/.svg/.pdf
 └── tests/
@@ -119,7 +119,7 @@ This notebook is the single source for every figure in [`technical_note.md`](tec
 It is split into two parts:
 
 - **Part A — Computation** (cells commented out by default). Trains the networks and computes the
-  gradient statistics, writing the metrics JSON into `results/` (e.g. `results/exp5_*.json` and the
+  gradient statistics, writing the metrics JSON into `results/` (e.g. `results/exp2_*.json` and the
   single-layer `results/single_layer_cue_accum_*.json`). Slower; GPU recommended.
 - **Part B — Analysis & plots** (run this). Loads the committed `results/*.json` and *replots in
   seconds with no training*, writing figures to `results/main_results/` as `.png/.svg/.pdf`.
@@ -136,14 +136,14 @@ JSON is not committed; Part B prints a "skipped" message for Figs 1.1–1.3 unti
 | **2.2** Gradient credit vs delay + cross-temporal share | `exp2.2_gradient_credit` |
 | **2.3** Convergence-speed significance | `exp2.3_speed_threshold`, `exp2.3b_speed_intervals` |
 | **2.4** Credit summary (D=12) | `exp2.4_credit_summary` |
-| **2.5** Cue decoding (spatial travels / temporal is meaningful) | `exp2.5_cue_decoding`, `exp5_cue_decoding_ladder` |
+| **2.5** Cue decoding (spatial travels / temporal is meaningful) | `exp2.5_cue_decoding`, `exp2.5_cue_decoding_ladder` |
 | **2.6** Readout-only reservoir control | `exp2.6_reservoir_control`, `exp2.6b_reservoir_curves` |
 
 **Under the hood (full multi-seed study + CLI).** The notebook's Part A runs a compact version of the
 study. A separate, fuller multi-seed pipeline — including the power and paired-significance analyses
-behind the convergence-speed claims — lives in `experiments.deep_credit_time_depth` (internally named
-`exp5` for historical reasons). It writes its own `results/e1_*.json`, `e2_*.json`, `e3_*.json`
-outputs (independent of the notebook's `exp5_*.json`):
+behind the convergence-speed claims — lives in `experiments.deep_credit_time_depth`. It writes its
+own `results/e1_*.json`, `e2_*.json`, `e3_*.json` outputs (independent of the notebook's
+`exp2_*.json`):
 
 ```bash
 python -u -m experiments.deep_credit_time_depth        # all parts (E1+E2+E3)
@@ -160,7 +160,7 @@ Set `DEVICE=cpu` to force CPU; E2/E3 parallelise seeds across a process pool aut
 
 ```bash
 python -m experiments.single_layer_cue_accum          # Experiment 1: single-layer e-prop vs BPTT
-python -m experiments.exp5_cue_decoding               # cue-decoding analysis (writes exp5_cue_decoding.json)
+python -m experiments.exp2_cue_decoding               # cue-decoding analysis (writes exp2_cue_decoding.json)
 python experiments/pilot_reservoir_resistance.py all  # reservoir-resistance pilot (future work)
 ```
 
