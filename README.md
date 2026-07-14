@@ -57,60 +57,54 @@ so that solving it *requires* both depth and temporal credit.
 e-prop-in-deep-networks/
 ├── README.md                     # this file
 ├── technical_note.md             # method, main results, limitations (grader-facing summary)
-├── CHANGELOG.md                  # dated log of every math/code change
-├── requirements.txt              # dependencies (versions pinned in iteration 2)
+├── requirements.txt              # dependencies
+├── utils.py                      # gradient helpers (flat_grads, cosine_sim_grads)
 │
 ├── tasks/                        # benchmark tasks
-│   ├── store_and_recall.py       #   single-layer reproduction task
-│   ├── cue_accumulation.py       #   evidence accumulation — dense 5-channel variant,
-│   │                             #   plus the population-coded variant used by Experiment 1
-│   ├── hierarchical_cue.py       #   main task: classify-then-count temporal motifs
-│   └── routed_cue.py, shd.py, smnist.py
+│   ├── cue_accumulation.py       #   evidence accumulation — dense variant + population-coded
+│   │                             #   variant; used by Experiment 1 (feasibility check)
+│   ├── hierarchical_cue.py       #   main task (Experiment 2): classify-then-count motifs
+│   └── routed_cue.py             #   harder routed variant (referenced in Limitations/future work)
 │
 ├── models/                       # RNN definitions
 │   ├── vanilla_rnn.py, leaky_rnn.py
-│   ├── deep_rnn.py               #   leaky DeepRNN used for the main result
-│   └── lif_rnn.py, deep_lif.py, deep_alif.py   # spiking variants (exploratory)
+│   └── deep_rnn.py               #   leaky DeepRNN used for the main result
 │
 ├── learning_rules/               # gradient rules (shared interface)
 │   ├── bptt.py                   #   ground truth
-│   ├── eprop.py, eprop_lif.py    #   single-layer e-prop
+│   ├── eprop.py                  #   single-layer e-prop
 │   ├── deep_eprop.py             #   deep e-prop + the two ablations
 │   ├── deep_rtrl.py              #   exact online reference (RTRL)
 │   └── interface.py              #   make_learning_rule() factory
 │
-├── experiments/                  # runnable scripts (see §3)
-│   ├── single_layer_eprop.py     #   single-layer store-and-recall reproduction
-│   ├── single_layer_cue_accum.py #   FEASIBILITY CHECK (Experiment 1): single-layer
-│   │                             #   e-prop vs BPTT on cue accumulation (Figs 1.1–1.3)
-│   ├── deep_eprop_comparison.py  #   2-layer deep e-prop vs d=0 vs BPTT
-│   ├── depth_sweep.py            #   1–3 layer sweep
-│   ├── deep_credit_time_depth.py #   MAIN RESULT (Experiment 2): E1/E2/E3 + stats
-│   └── exp5_*.py, pilot_*.py     #   spiking / reservoir-resistance explorations
+├── experiments/                  # CLI pipeline (see §3)
+│   ├── deep_credit_time_depth.py #   full multi-seed study: E1/E2/E3 + power/significance
+│   ├── stats.py                  #   paired tests / permutation / power helpers
+│   ├── single_layer_cue_accum.py #   Experiment 1: single-layer e-prop vs BPTT on cue accumulation
+│   ├── exp5_cue_decoding.py      #   cue-decoding analysis (writes results/exp5_cue_decoding.json)
+│   └── pilot_reservoir_resistance.py   #   reservoir-resistance pilot (future work)
 │
 ├── notebooks/
-│   ├── main_results.ipynb                  # PRIMARY: reproduces every figure in the technical note
-│   ├── deep_eprop_colab.ipynb              # end-to-end Colab run
-│   └── time_depth_detailed_results.ipynb   # older detailed main-result notebook + reservoir checks
+│   └── main_results.ipynb        # PRIMARY: Part A computes the results JSON, Part B replots every
+│                                 #          figure in the technical note (runs locally and on Colab)
 │
-├── figures/                      # figure-generation scripts + schematic diagrams
 ├── docs/
-│   └── experiment5_mathematics.md          # full derivation behind the main result
-├── results/
-│   └── main_results/             # figures (exp1.*, exp2.*) shown in the technical note (.png/.svg/.pdf)
-│                                 #   + committed metrics JSON (exp5_*.json) the notebook replots from
+│   └── mathematical_note.md      # full derivation behind the main result + numerical verification
+│
+├── results/                      # committed metrics the notebook (Part B) replots from
+│   ├── exp5_learning_curves.json, exp5_gradient_credit.json,
+│   │   exp5_cue_decoding.json, exp5_reservoir_control.json
+│   └── main_results/             # figures shown in the technical note (exp1.*, exp2.*) + the
+│                                 #   cue-decoding ladder, as .png/.svg/.pdf
 └── tests/
-    └── sanity_checks.py          # correctness suite (9 tests, CPU, < 60 s)
+    └── sanity_checks.py          # correctness suite (10 tests, CPU, < 5 s)
 ```
-
-> ⚠️ **Not yet in the repo:** Ruchit's single-layer **cue-accumulation** reproduction of
-> Bellec et al. 2020 (**Experiment 1**, see §4) is not committed yet and will be added.
 
 ---
 
 ## 3. How to run
 
-**Python:** 3.10+ _(exact version + pinned dependency versions to be fixed in iteration 2)._
+**Python:** 3.10+ (developed and tested on 3.12).
 
 **Install**
 
@@ -121,32 +115,35 @@ pip install -r requirements.txt
 ```
 
 **Reproduce the figures (recommended — `notebooks/main_results.ipynb`).**
-This is the single source for every figure in [`technical_note.md`](technical_note.md).
-Each experiment is split into two parts:
+This notebook is the single source for every figure in [`technical_note.md`](technical_note.md).
+It is split into two parts:
 
-- **(A) Reproduce** — loads the committed `results/main_results/exp5_*.json` and *replots in
-  seconds with no training*. Run only these cells for a quick check. Figures are written to
-  `results/main_results/exp1.*` and `exp2.*` (`.png/.svg/.pdf`).
-- **(B) Full rerun** — repeats all training / gradient computation from scratch and
-  **overwrites** those JSON files. Slower (GPU recommended); use it to verify the numbers.
+- **Part A — Computation** (cells commented out by default). Trains the networks and computes the
+  gradient statistics, writing the metrics JSON into `results/` (e.g. `results/exp5_*.json` and the
+  single-layer `results/single_layer_cue_accum_*.json`). Slower; GPU recommended.
+- **Part B — Analysis & plots** (run this). Loads the committed `results/*.json` and *replots in
+  seconds with no training*, writing figures to `results/main_results/` as `.png/.svg/.pdf`.
 
-Run top-to-bottom to regenerate everything from scratch, or run just the **Reproduce** cells
-to redraw the committed results. The notebook self-detects GPU/CPU and clones/pulls the repo
-in its setup cell, so it also runs as-is on Colab.
+For a quick check, run **Part B** top-to-bottom against the committed JSON. To regenerate the numbers
+from scratch, uncomment and run **Part A** first, then **Part B**. The notebook self-detects GPU/CPU
+and clones the repo in its setup cell, so it also runs as-is on Colab. (The single-layer Experiment 1
+JSON is not committed; Part B prints a "skipped" message for Figs 1.1–1.3 until Part A §1 is run.)
 
-| Notebook section | Figures |
+| Notebook section (Part B) | Figures |
 |---|---|
 | **1** Single-layer e-prop (Experiment 1) | `exp1.1`–`exp1.3` |
 | **2.1** Learning curves | `exp2.1_learning_curves` |
 | **2.2** Gradient credit vs delay + cross-temporal share | `exp2.2_gradient_credit` |
-| **2.3** Convergence-speed significance | `exp2.3_speed_threshold` |
+| **2.3** Convergence-speed significance | `exp2.3_speed_threshold`, `exp2.3b_speed_intervals` |
 | **2.4** Credit summary (D=12) | `exp2.4_credit_summary` |
-| **2.5** Cue decoding (spatial travels / temporal is meaningful) | `exp2.5_cue_decoding` |
-| **2.6** Readout-only reservoir control | `exp2.6_reservoir_control` |
+| **2.5** Cue decoding (spatial travels / temporal is meaningful) | `exp2.5_cue_decoding`, `exp5_cue_decoding_ladder` |
+| **2.6** Readout-only reservoir control | `exp2.6_reservoir_control`, `exp2.6b_reservoir_curves` |
 
-**Under the hood (full multi-seed study + CLI).** The notebook's Full-rerun cells run a
-compact version; the complete multi-seed pipeline (incl. the power/stats analyses) lives in
-`experiments.deep_credit_time_depth` (internally named `exp5` for historical reasons):
+**Under the hood (full multi-seed study + CLI).** The notebook's Part A runs a compact version of the
+study. A separate, fuller multi-seed pipeline — including the power and paired-significance analyses
+behind the convergence-speed claims — lives in `experiments.deep_credit_time_depth` (internally named
+`exp5` for historical reasons). It writes its own `results/e1_*.json`, `e2_*.json`, `e3_*.json`
+outputs (independent of the notebook's `exp5_*.json`):
 
 ```bash
 python -u -m experiments.deep_credit_time_depth        # all parts (E1+E2+E3)
@@ -159,29 +156,28 @@ python -u -m experiments.deep_credit_time_depth stats 8 # paired significance te
 
 Set `DEVICE=cpu` to force CPU; E2/E3 parallelise seeds across a process pool automatically.
 
-**Supporting experiments**
+**Supporting scripts**
 
 ```bash
-python -m experiments.single_layer_eprop      # single-layer store-and-recall reproduction
-python -m experiments.deep_eprop_comparison   # 2-layer deep e-prop vs d=0 vs BPTT
-python -m experiments.depth_sweep             # 1–3 layer sweep
-python experiments/pilot_reservoir_resistance.py all   # reservoir-resistance pilot
+python -m experiments.single_layer_cue_accum          # Experiment 1: single-layer e-prop vs BPTT
+python -m experiments.exp5_cue_decoding               # cue-decoding analysis (writes exp5_cue_decoding.json)
+python experiments/pilot_reservoir_resistance.py all  # reservoir-resistance pilot (future work)
 ```
 
 **Correctness suite**
 
 ```bash
-python -m tests.sanity_checks        # 9 tests, CPU-only, < 60 s
+python -m tests.sanity_checks        # 10 tests, CPU-only, ~2 s
 ```
 
-**Expected runtime** _(placeholder — confirm on your hardware in iteration 2):_
+**Expected runtime** _(approximate; confirm on your hardware — the full study is fastest on GPU):_
 
 | Command | Approx. runtime |
 |---|---|
-| `tests.sanity_checks` | < 1 min (CPU) |
-| `deep_credit_time_depth e1` | ~TODO |
-| `deep_credit_time_depth e2` | ~TODO |
-| `deep_credit_time_depth all` | ~TODO |
+| `tests.sanity_checks` | ~2 s (CPU) |
+| `notebooks/main_results.ipynb` Part B (replot only) | seconds (CPU) |
+| `notebooks/main_results.ipynb` Part A (recompute) | minutes (GPU recommended) |
+| `deep_credit_time_depth all` | minutes–tens of minutes (multi-seed; GPU recommended) |
 
 ---
 
@@ -193,8 +189,8 @@ python -m tests.sanity_checks        # 9 tests, CPU-only, < 60 s
 - **Yannick Säckl** — co-conceptualized both experiments; implemented the random-reservoir
   control checks for **Experiment 2** (in `notebooks/main_results.ipynb` §2.6).
 - **Ruchit Kumar Patel** — implemented the single-layer e-prop **cue-accumulation**
-  reproduction of Bellec et al. 2020 (**Experiment 1**). _Code pending — not yet added to
-  the repository (see §2)._
+  reproduction of Bellec et al. 2020 (**Experiment 1**; `experiments/single_layer_cue_accum.py`
+  and §1 of `notebooks/main_results.ipynb`).
 
 All authors contributed to project planning, the design of the final presentation, and the
 organization of the code repository.
@@ -233,7 +229,7 @@ lower layer cannot fake), using a 2-layer leaky `DeepRNN` (α = [0.5, 0.05], n_r
   (indistinguishable from full, perm p ≈ 1.0), so **depth is used but not *required*** on this
   task — an honest limit on the "depth is required" framing (see `technical_note.md`).
 
-Full derivation and numerical verification: [`docs/experiment5_mathematics.md`](docs/experiment5_mathematics.md).
+Full derivation and numerical verification: [`docs/mathematical_note.md`](docs/mathematical_note.md).
 
 Why **leaky** (not vanilla) tanh: a vanilla tanh RNN's e-prop temporal carry is negligible
 (`ψ·W_ii ≈ 0.005`), so e-prop collapses onto the memoryless d=0 baseline; a leaky unit adds

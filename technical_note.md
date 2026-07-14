@@ -46,10 +46,17 @@ contribution to the lower layer's credit.
 
 ## 2. Method
 
-### 2.1 Feasibility Check: 1-layer non-spiking reproduction of Bellec et al.
-**Model.** A two-layer leaky-integrator RNN
+### 2.1 Feasibility check: single-layer non-spiking reproduction of Bellec et al.
+**Model.** A single-layer leaky-integrator RNN (`models/leaky_rnn.py`):
+`h_t = (1−α)·h_{t−1} + α·tanh(W_rec·h_{t−1} + W_in·x_t)`, with a linear readout over the recall
+window (n_rec = 100, α = 0.005 → memory horizon τ ≈ 200 steps). This is the non-spiking analogue of
+Bellec et al.'s single-layer LSNN; using leaky-tanh units instead of spikes removes spiking dynamics
+as a confound before we add depth.
 
-**Task - cue accumulation.** Adapted from Bellec et al. (2025).
+**Task — cue accumulation.** The population-coded ("Poisson") evidence-accumulation task of Bellec et
+al. (2020) (`tasks/cue_accumulation.py`, `generate_poisson_batch`): a stream of brief left/right cue
+pulses separated by silence, then a silent delay, then a recall step at which the network reports
+which side received the strict majority of cues.
 
 | Rule | What it does |
 |---|---|
@@ -66,7 +73,7 @@ Eligibility-trace approximation transfers to RNNs: gradient direction tracks BPT
 
 ![Figure 1.3 — Single layer delay sweep.](results/main_results/exp1.3_delay_sweep.png)
 
-### 2.2 Main Experient: Hierarchical Cue Accumulation
+### 2.2 Main experiment: hierarchical cue accumulation
 
 **Model.** A two-layer leaky-integrator RNN (`models/deep_rnn.py`):
 `hˡ_t = (1−αˡ)·hˡ_{t−1} + αˡ·tanh(aˡ_t)`, with per-layer rates α = [0.5, 0.05] (fast lower,
@@ -83,7 +90,10 @@ We constructed the toy task with these goals in mind:
   feature detector so that a frozen random layer cannot fake it.
 - *Count (time):* the top layer must accumulate per-motif classifications and hold them
   across the delay, so credit for an early motif must cross both depth and time.
-Later experiments showed however that this is not the exact case. Compared to other tasks, depth was still most contributing to the model performance.
+
+Our reservoir control (Result 5, §4) later showed that this task does not *force* depth to be used —
+a frozen random lower layer already exposes the per-motif feature linearly — so depth credit is used
+but not strictly required here. We report this openly as a limitation.
 
 **Learning rules compared** (all share the same forward model; only the gradient differs):
 
@@ -174,9 +184,9 @@ lower layer, so depth credit is *used but not necessary* here.
 
 | Figure | File in `results/` | Command |
 |---|---|---|
-| Fig 1.1 - learning curves single layer | `` | `` |
-| Fig 1.2 - single layer speed threshold | `` | `` |
-| Fig 1.3 - single layer delay sweep | `` | `` |
+| Fig 1.1 - learning curves single layer | `main_results/exp1.1_learning_curves.{png,svg,pdf}` | `notebooks/main_results.ipynb` §1.1 |
+| Fig 1.2 - single layer speed threshold | `main_results/exp1.2_speed_threshold.{png,svg,pdf}` | `notebooks/main_results.ipynb` §1.2 |
+| Fig 1.3 - single layer delay sweep | `main_results/exp1.3_delay_sweep.{png,svg,pdf}` | `notebooks/main_results.ipynb` §1.3 |
 | Fig 2.1 - learning curves | `main_results/exp2.1_learning_curves.{svg,pdf}` | `notebooks/main_results.ipynb` §2.1 |
 | Fig 2.2 - gradient credit | `main_results/exp2.2_gradient_credit.{svg,pdf}` | `notebooks/main_results.ipynb` §2.2 |
 | Fig 2.3 - speed threshold | `main_results/exp2.3_speed_threshold.{svg,pdf}` | `notebooks/main_results.ipynb` §2.3 |
