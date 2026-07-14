@@ -208,4 +208,7 @@ lower layer, so depth credit is *used but not necessary* here.
 | Fig 2.4b speed threshold | `main_results/exp2.3_speed_threshold.{svg,pdf}` | `notebooks/main_results.ipynb` §2.3 |
 | Fig 2.5 reservoir control | `main_results/exp2.6_reservoir_control.{svg,pdf}` | `notebooks/main_results.ipynb` §2.6 |
 
-
+## 6. Key References
+Millidge (2025), Generalizing E-prop to Deep Networks (Zyphra, arXiv:2512.24506).\
+Bellec et al. (2020), A solution to the learning dilemma for recurrent networks of spiking
+neurons, Nature Communications 11:3625.
