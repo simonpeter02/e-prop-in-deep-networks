@@ -143,6 +143,14 @@ task-relevant information.
 ![Figure 2.5 Cross-validated decode accuracy of lower-layer gradients for full and both ablations.](results/main_results/exp2.5_cue_decoding.png)
 *Figure 2.5  Cross-validated decode accuracy of lower-layer gradients (binary label vs. cue margin) for full and both ablations. (`results/main_results/exp2.5_cue_decoding.{svg,pdf,png}`, `notebooks/main_results.ipynb` §2.5)*
 
+The same result, distilled into a single "cue-margin decoding ladder": full deep e-prop sits at the
+top (cue margin recoverable), `ablate_temporal` drops in the middle (gradient still reaches the lower
+layer but is cue-agnostic), and `ablate_spatial` falls to chance (no gradient reaches the lower layer
+at all).
+
+![Figure 2.5b Cue-margin decoding ladder: full vs ablate_temporal vs ablate_spatial.](results/main_results/exp5_cue_decoding_ladder.png)
+*Figure 2.5b  Cue-margin decoding ladder — lower-layer cue-margin decodability for full deep e-prop and both ablations. (`results/main_results/exp5_cue_decoding_ladder.{svg,pdf,png}`, `notebooks/main_results.ipynb` §2.5)*
+
 **Result 4: the credit-quality difference shows up as convergence speed.**
 Under Adam all trainable rules eventually reach ≈ 1.0 held-out accuracy, so the credit-quality
 difference appears as **convergence speed**. Steps to reach ≥ 0.90 accuracy order as
@@ -192,4 +200,5 @@ lower layer, so depth credit is *used but not necessary* here.
 | Fig 2.3 - speed threshold | `main_results/exp2.3_speed_threshold.{svg,pdf}` | `notebooks/main_results.ipynb` §2.3 |
 | Fig 2.4 - credit summary | `main_results/exp2.4_credit_summary.{svg,pdf}` | `notebooks/main_results.ipynb` §2.4 |
 | Fig 2.5 - cue decoding | `main_results/exp2.5_cue_decoding.{svg,pdf}` | `notebooks/main_results.ipynb` §2.5 |
+| Fig 2.5b - cue-margin decoding ladder | `main_results/exp5_cue_decoding_ladder.{svg,pdf}` | `notebooks/main_results.ipynb` §2.5 |
 | Fig 2.6 - reservoir control | `main_results/exp2.6_reservoir_control.{svg,pdf}` | `notebooks/main_results.ipynb` §2.6 |
