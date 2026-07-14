@@ -53,7 +53,7 @@ window (n_rec = 100, α = 0.005 → memory horizon τ ≈ 200 steps). This is th
 Bellec et al.'s single-layer LSNN; using leaky-tanh units instead of spikes removes spiking dynamics
 as a confound before we add depth.
 
-**Task — cue accumulation.** The population-coded ("Poisson") evidence-accumulation task of Bellec et
+**Task: cue accumulation.** The population-coded ("Poisson") evidence-accumulation task of Bellec et
 al. (2020) (`tasks/cue_accumulation.py`, `generate_poisson_batch`): a stream of brief left/right cue
 pulses separated by silence, then a silent delay, then a recall step at which the network reports
 which side received the strict majority of cues.
@@ -67,11 +67,11 @@ which side received the strict majority of cues.
 Eligibility-trace approximation transfers to RNNs: gradient direction tracks BPTT, trains to comparable accuracy. Serves as a sound baseline; removes spiking as a confound for depth.
 
 **Results.**
-![Figure 1.1 — Learning curves for single layer e-prop.](results/main_results/exp1.1_learning_curves.png)
+![Figure 1.1 Learning curves for single layer e-prop.](results/main_results/exp1.1_learning_curves.png)
 
-![Figure 1.2 — Single layer training speed.](results/main_results/exp1.2_speed_threshold.png)
+![Figure 1.2 Single layer training speed.](results/main_results/exp1.2_speed_threshold.png)
 
-![Figure 1.3 — Single layer delay sweep.](results/main_results/exp1.3_delay_sweep.png)
+![Figure 1.3 Single layer delay sweep.](results/main_results/exp1.3_delay_sweep.png)
 
 ### 2.2 Main experiment: hierarchical cue accumulation
 
@@ -81,7 +81,7 @@ slow top; top memory horizon τ ≈ 20 steps), n_rec = 32, linear readout from t
 The leak is essential: it gives e-prop a real temporal carry to capture. In a vanilla
 tanh RNN that carry is ≈ 0.005 and e-prop collapses onto the memoryless d=0 baseline.
 
-**Task - hierarchical "classify-then-count"** (`tasks/hierarchical_cue.py`). Each trial
+**Task: hierarchical "classify-then-count"** (`tasks/hierarchical_cue.py`). Each trial
 shows several short temporal **motifs** (mean-zero *rising* vs *falling* ramps with identical
 mean and energy, differing only in the sign of their time-derivative), separated by silence,
 then a long silent **delay**, then one **decision** step asking for the majority motif class.
@@ -91,8 +91,8 @@ We constructed the toy task with these goals in mind:
 - *Count (time):* the top layer must accumulate per-motif classifications and hold them
   across the delay, so credit for an early motif must cross both depth and time.
 
-Our reservoir control (Result 5, §4) later showed that this task does not *force* depth to be used —
-a frozen random lower layer already exposes the per-motif feature linearly — so depth credit is used
+Our reservoir control (Result 5, §4) later showed that this task does not *force* depth to be used, since
+a frozen random lower layer already exposes the per-motif feature linearly. This means depth credit is used
 but not strictly required here. We report this openly as a limitation.
 
 **Learning rules compared** (all share the same forward model; only the gradient differs):
@@ -114,13 +114,13 @@ lower-layer credit carried by the temporal path; (E2) **learning curves** to con
 **Result 1: deep e-prop assigns meaningful, BPTT-aligned credit across both time and depth.**
 Full deep e-prop matches BPTT gradients for both layers (lower/input-adjacent cosine
 ≈ 0.73–0.79, top/output-adjacent ≈ 0.92–0.96), staying positive at every layer and every
-delay. This answers **Q1: yes** — the deep recursion carries real credit through the lower
+delay. This answers **Q1: yes**. the deep recursion carries real credit through the lower
 recurrent layer. Of that lower-layer credit, the cross-layer **temporal** trace carries
 ≈ **93%** of the magnitude, so the depth credit is dominated by the temporal path
 (**Q2: temporal dominates**).
 
 ![Figure 2.2 Per-layer gradient cosine to BPTT and cross-temporal credit share vs delay.](results/main_results/exp2.2_gradient_credit.png)
-*Figure 2.2  Per-layer gradient cosine to BPTT and cross-temporal credit share vs delay. (`results/main_results/exp2.2_gradient_credit.{svg,pdf,png}`, `notebooks/main_results.ipynb` §2.2)*
+*Figure 2.2 Per-layer gradient cosine to BPTT and cross-temporal credit share vs delay. (`results/main_results/exp2.2_gradient_credit.{svg,pdf,png}`, `notebooks/main_results.ipynb` §2.2)*
 
 **Result 2: the two ablations behave exactly as the credit-path picture predicts.**
 `ablate_spatial` zeroes the lower-layer gradient *exactly* (the depth path is the only
@@ -149,7 +149,7 @@ layer but is cue-agnostic), and `ablate_spatial` falls to chance (no gradient re
 at all).
 
 ![Figure 2.5b Cue-margin decoding ladder: full vs ablate_temporal vs ablate_spatial.](results/main_results/exp2.5_cue_decoding_ladder.png)
-*Figure 2.5b  Cue-margin decoding ladder — lower-layer cue-margin decodability for full deep e-prop and both ablations. (`results/main_results/exp2.5_cue_decoding_ladder.{svg,pdf,png}`, `notebooks/main_results.ipynb` §2.5)*
+*Figure 2.5b Cue-margin decoding ladder: lower-layer cue-margin decodability for full deep e-prop and both ablations. (`results/main_results/exp2.5_cue_decoding_ladder.{svg,pdf,png}`, `notebooks/main_results.ipynb` §2.5)*
 
 **Result 4: the credit-quality difference shows up as convergence speed.**
 Under Adam all trainable rules eventually reach ≈ 1.0 held-out accuracy, so the credit-quality
@@ -164,12 +164,12 @@ cross-layer component slows learning to a comparable degree.
 
 **Result 5: depth is not required on this task (reservoir control).**
 A frozen random lower layer with only the top layer and readout trained reaches ≈ 100%
-accuracy — statistically indistinguishable from full deep e-prop (Δ ≈ 0.000, permutation
+accuracy and is statistically indistinguishable from full deep e-prop (Δ ≈ 0.000, permutation
 p ≈ 1.0). The per-cue rising/falling feature is already linearly present in the untrained
 lower layer, so depth credit is *used but not necessary* here.
 
 ![Figure 2.6 Random-reservoir (frozen lower layer) vs trainable rules.](results/main_results/exp2.6_reservoir_control.png)
-*Figure 2.6  Random-reservoir (frozen lower layer) vs trainable rules. (`results/main_results/exp2.6_reservoir_control.{svg,pdf,png}`, `notebooks/main_results.ipynb` §2.6)*
+*Figure 2.6 Random-reservoir (frozen lower layer) vs trainable rules. (`results/main_results/exp2.6_reservoir_control.{svg,pdf,png}`, `notebooks/main_results.ipynb` §2.6)*
 
 ## 4. Limitations
 
@@ -192,13 +192,13 @@ lower layer, so depth credit is *used but not necessary* here.
 
 | Figure | File in `results/` | Command |
 |---|---|---|
-| Fig 1.1 - learning curves single layer | `main_results/exp1.1_learning_curves.{png,svg,pdf}` | `notebooks/main_results.ipynb` §1.1 |
-| Fig 1.2 - single layer speed threshold | `main_results/exp1.2_speed_threshold.{png,svg,pdf}` | `notebooks/main_results.ipynb` §1.2 |
-| Fig 1.3 - single layer delay sweep | `main_results/exp1.3_delay_sweep.{png,svg,pdf}` | `notebooks/main_results.ipynb` §1.3 |
-| Fig 2.1 - learning curves | `main_results/exp2.1_learning_curves.{svg,pdf}` | `notebooks/main_results.ipynb` §2.1 |
-| Fig 2.2 - gradient credit | `main_results/exp2.2_gradient_credit.{svg,pdf}` | `notebooks/main_results.ipynb` §2.2 |
-| Fig 2.3 - speed threshold | `main_results/exp2.3_speed_threshold.{svg,pdf}` | `notebooks/main_results.ipynb` §2.3 |
-| Fig 2.4 - credit summary | `main_results/exp2.4_credit_summary.{svg,pdf}` | `notebooks/main_results.ipynb` §2.4 |
-| Fig 2.5 - cue decoding | `main_results/exp2.5_cue_decoding.{svg,pdf}` | `notebooks/main_results.ipynb` §2.5 |
-| Fig 2.5b - cue-margin decoding ladder | `main_results/exp2.5_cue_decoding_ladder.{svg,pdf}` | `notebooks/main_results.ipynb` §2.5 |
-| Fig 2.6 - reservoir control | `main_results/exp2.6_reservoir_control.{svg,pdf}` | `notebooks/main_results.ipynb` §2.6 |
+| Fig 1.1 learning curves single layer | `main_results/exp1.1_learning_curves.{png,svg,pdf}` | `notebooks/main_results.ipynb` §1.1 |
+| Fig 1.2 single layer speed threshold | `main_results/exp1.2_speed_threshold.{png,svg,pdf}` | `notebooks/main_results.ipynb` §1.2 |
+| Fig 1.3 single layer delay sweep | `main_results/exp1.3_delay_sweep.{png,svg,pdf}` | `notebooks/main_results.ipynb` §1.3 |
+| Fig 2.1 learning curves | `main_results/exp2.1_learning_curves.{svg,pdf}` | `notebooks/main_results.ipynb` §2.1 |
+| Fig 2.2 gradient credit | `main_results/exp2.2_gradient_credit.{svg,pdf}` | `notebooks/main_results.ipynb` §2.2 |
+| Fig 2.3 speed threshold | `main_results/exp2.3_speed_threshold.{svg,pdf}` | `notebooks/main_results.ipynb` §2.3 |
+| Fig 2.4 credit summary | `main_results/exp2.4_credit_summary.{svg,pdf}` | `notebooks/main_results.ipynb` §2.4 |
+| Fig 2.5 cue decoding | `main_results/exp2.5_cue_decoding.{svg,pdf}` | `notebooks/main_results.ipynb` §2.5 |
+| Fig 2.5b cue-margin decoding ladder | `main_results/exp2.5_cue_decoding_ladder.{svg,pdf}` | `notebooks/main_results.ipynb` §2.5 |
+| Fig 2.6 reservoir control | `main_results/exp2.6_reservoir_control.{svg,pdf}` | `notebooks/main_results.ipynb` §2.6 |
