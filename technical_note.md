@@ -119,8 +119,8 @@ recurrent layer. Of that lower-layer credit, the cross-layer **temporal** trace 
 ≈ **93%** of the magnitude, so the depth credit is dominated by the temporal path
 (**Q2: temporal dominates**).
 
-![Figure 2.2 Per-layer gradient cosine to BPTT and cross-temporal credit share vs delay.](results/main_results/exp2.2_gradient_credit.png)
-*Figure 2.2 Per-layer gradient cosine to BPTT and cross-temporal credit share vs delay. (`results/main_results/exp2.2_gradient_credit.{svg,pdf,png}`, `notebooks/main_results.ipynb` §2.2)*
+![Figure 2.1 Per-layer gradient cosine to BPTT and cross-temporal credit share vs delay.](results/main_results/exp2.2_gradient_credit.png)
+*Figure 2.1 Per-layer gradient cosine to BPTT and cross-temporal credit share vs delay. (`results/main_results/exp2.2_gradient_credit.{svg,pdf,png}`, `notebooks/main_results.ipynb` §2.2)*
 
 **Result 2: the two ablations behave exactly as the credit-path picture predicts.**
 `ablate_spatial` zeroes the lower-layer gradient *exactly* (the depth path is the only
@@ -128,8 +128,8 @@ injection into `ε^z`); `ablate_temporal` retains **most of the gradient alignme
 Both leave the **top layer and readout gradients bit-for-bit identical to full**, because the
 ablations act only on the lower-layer cross-trace.
 
-![Figure 2.4 Lower- vs top-layer gradient cosine at D=12 for full and both ablations.](results/main_results/exp2.4_credit_summary.png)
-*Figure 2.4 Lower- vs top-layer gradient cosine at D=12 for full and both ablations. (`results/main_results/exp2.4_credit_summary.{svg,pdf,png}`, `notebooks/main_results.ipynb` §2.4)*
+![Figure 2.2 Lower- vs top-layer gradient cosine at D=12 for full and both ablations.](results/main_results/exp2.4_credit_summary.png)
+*Figure 2.2 Lower- vs top-layer gradient cosine at D=12 for full and both ablations. (`results/main_results/exp2.4_credit_summary.{svg,pdf,png}`, `notebooks/main_results.ipynb` §2.4)*
 
 **Result 3: spatial carry makes gradients *travel*; temporal carry makes them *meaningful*.**
 Although `ablate_temporal` keeps most of the raw cosine to BPTT, the lower-layer gradients it
@@ -140,16 +140,16 @@ while `ablate_spatial` sits at chance (≈ 0.50). So the **spatial** term is wha
 gradient reach the lower layer, and the **temporal** term is what makes that gradient carry
 task-relevant information.
 
-![Figure 2.5 Cross-validated decode accuracy of lower-layer gradients for full and both ablations.](results/main_results/exp2.5_cue_decoding.png)
-*Figure 2.5  Cross-validated decode accuracy of lower-layer gradients (binary label vs. cue margin) for full and both ablations. (`results/main_results/exp2.5_cue_decoding.{svg,pdf,png}`, `notebooks/main_results.ipynb` §2.5)*
+![Figure 2.3 Cross-validated decode accuracy of lower-layer gradients for full and both ablations.](results/main_results/exp2.5_cue_decoding.png)
+*Figure 2.3  Cross-validated decode accuracy of lower-layer gradients (binary label vs. cue margin) for full and both ablations. (`results/main_results/exp2.5_cue_decoding.{svg,pdf,png}`, `notebooks/main_results.ipynb` §2.5)*
 
 The same result, distilled into a single "cue-margin decoding ladder": full deep e-prop sits at the
 top (cue margin recoverable), `ablate_temporal` drops in the middle (gradient still reaches the lower
 layer but is cue-agnostic), and `ablate_spatial` falls to chance (no gradient reaches the lower layer
 at all).
 
-![Figure 2.5b Cue-margin decoding ladder: full vs ablate_temporal vs ablate_spatial.](results/main_results/exp2.5_cue_decoding_ladder.png)
-*Figure 2.5b Cue-margin decoding ladder: lower-layer cue-margin decodability for full deep e-prop and both ablations. (`results/main_results/exp2.5_cue_decoding_ladder.{svg,pdf,png}`, `notebooks/main_results.ipynb` §2.5)*
+![Figure 2.3b Cue-margin decoding ladder: full vs ablate_temporal vs ablate_spatial.](results/main_results/exp2.5_cue_decoding_ladder.png)
+*Figure 2.3b Cue-margin decoding ladder: lower-layer cue-margin decodability for full deep e-prop and both ablations. (`results/main_results/exp2.5_cue_decoding_ladder.{svg,pdf,png}`, `notebooks/main_results.ipynb` §2.5)*
 
 **Result 4: the credit-quality difference shows up as convergence speed.**
 Under Adam all trainable rules eventually reach ≈ 1.0 held-out accuracy, so the credit-quality
@@ -159,8 +159,11 @@ full is significantly faster than either ablation (`*`), while the two ablations
 statistically indistinguishable from each other (`ns`). Deep e-prop works, but removing either
 cross-layer component slows learning to a comparable degree.
 
-![Figure 2.1  Learning curves at D=12 (mean ± SEM across seeds).](results/main_results/exp2.1_learning_curves.png)
-*Figure 2.1  Learning curves at D=12 (mean ± SEM across seeds). (`results/main_results/exp2.1_learning_curves.{svg,pdf,png}`, `notebooks/main_results.ipynb` §2.1)*
+![Figure 2.4 Learning curves at D=12 (mean ± SEM across seeds).](results/main_results/exp2.1_learning_curves.png)
+*Figure 2.4 Learning curves at D=12 (mean ± SEM across seeds). (`results/main_results/exp2.1_learning_curves.{svg,pdf,png}`, `notebooks/main_results.ipynb` §2.1)*
+
+![Figure 2.4b Learning speed comparison with significance test. (mean ± SEM across seeds).](results/main_results/exp2.3_speed_threshold.png)
+*Figure 2.4b Learning speed comparison with significance test. (`results/main_results/exp2.3_speed_threshold.{svg,pdf,png}`, `notebooks/main_results.ipynb` §2.1)*
 
 **Result 5: depth is not required on this task (reservoir control).**
 A frozen random lower layer with only the top layer and readout trained reaches ≈ 100%
@@ -168,8 +171,8 @@ accuracy and is statistically indistinguishable from full deep e-prop (Δ ≈ 0.
 p ≈ 1.0). The per-cue rising/falling feature is already linearly present in the untrained
 lower layer, so depth credit is *used but not necessary* here.
 
-![Figure 2.6 Random-reservoir (frozen lower layer) vs trainable rules.](results/main_results/exp2.6_reservoir_control.png)
-*Figure 2.6 Random-reservoir (frozen lower layer) vs trainable rules. (`results/main_results/exp2.6_reservoir_control.{svg,pdf,png}`, `notebooks/main_results.ipynb` §2.6)*
+![Figure 2.5 Random-reservoir (frozen lower layer) vs trainable rules.](results/main_results/exp2.6_reservoir_control.png)
+*Figure 2.5 Random-reservoir (frozen lower layer) vs trainable rules. (`results/main_results/exp2.6_reservoir_control.{svg,pdf,png}`, `notebooks/main_results.ipynb` §2.6)*
 
 ## 4. Limitations
 
@@ -195,10 +198,12 @@ lower layer, so depth credit is *used but not necessary* here.
 | Fig 1.1 learning curves single layer | `main_results/exp1.1_learning_curves.{png,svg,pdf}` | `notebooks/main_results.ipynb` §1.1 |
 | Fig 1.2 single layer speed threshold | `main_results/exp1.2_speed_threshold.{png,svg,pdf}` | `notebooks/main_results.ipynb` §1.2 |
 | Fig 1.3 single layer delay sweep | `main_results/exp1.3_delay_sweep.{png,svg,pdf}` | `notebooks/main_results.ipynb` §1.3 |
-| Fig 2.1 learning curves | `main_results/exp2.1_learning_curves.{svg,pdf}` | `notebooks/main_results.ipynb` §2.1 |
-| Fig 2.2 gradient credit | `main_results/exp2.2_gradient_credit.{svg,pdf}` | `notebooks/main_results.ipynb` §2.2 |
-| Fig 2.3 speed threshold | `main_results/exp2.3_speed_threshold.{svg,pdf}` | `notebooks/main_results.ipynb` §2.3 |
-| Fig 2.4 credit summary | `main_results/exp2.4_credit_summary.{svg,pdf}` | `notebooks/main_results.ipynb` §2.4 |
-| Fig 2.5 cue decoding | `main_results/exp2.5_cue_decoding.{svg,pdf}` | `notebooks/main_results.ipynb` §2.5 |
-| Fig 2.5b cue-margin decoding ladder | `main_results/exp2.5_cue_decoding_ladder.{svg,pdf}` | `notebooks/main_results.ipynb` §2.5 |
-| Fig 2.6 reservoir control | `main_results/exp2.6_reservoir_control.{svg,pdf}` | `notebooks/main_results.ipynb` §2.6 |
+| Fig 2.1 gradient credit | `main_results/exp2.2_gradient_credit.{svg,pdf}` | `notebooks/main_results.ipynb` §2.2 |
+| Fig 2.2 credit summary | `main_results/exp2.4_credit_summary.{svg,pdf}` | `notebooks/main_results.ipynb` §2.4 |
+| Fig 2.3 cue decoding | `main_results/exp2.5_cue_decoding.{svg,pdf}` | `notebooks/main_results.ipynb` §2.5 |
+| Fig 2.3b cue-margin decoding ladder | `main_results/exp2.5_cue_decoding_ladder.{svg,pdf}` | `notebooks/main_results.ipynb` §2.5 |
+| Fig 2.4 learning curves | `main_results/exp2.1_learning_curves.{svg,pdf}` | `notebooks/main_results.ipynb` §2.1 |
+| Fig 2.4b speed threshold | `main_results/exp2.3_speed_threshold.{svg,pdf}` | `notebooks/main_results.ipynb` §2.3 |
+| Fig 2.5 reservoir control | `main_results/exp2.6_reservoir_control.{svg,pdf}` | `notebooks/main_results.ipynb` §2.6 |
+
+
